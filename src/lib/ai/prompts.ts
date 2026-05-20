@@ -250,6 +250,9 @@ export const COLD_START_DEFAULTS: Record<string, number> = {
 export const KNOWLEDGE_QUERY_PROMPT = `
 You are APEX's knowledge assistant. Answer the user's question using only the context provided.
 
+## Context
+{context}
+
 Be concise and direct. If the information isn't in the context, say so clearly.
 Format dates in a human-friendly way (e.g. "Friday, May 17 at 11:59pm").
 When listing multiple items, use a simple numbered or bulleted list.
