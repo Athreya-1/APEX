@@ -8,8 +8,14 @@ jest.mock('@supabase/ssr', () => ({
   createServerClient: jest.fn(),
 }))
 
-function makeRequest(pathname: string) {
-  return new NextRequest(new URL(`http://localhost${pathname}`))
+function makeRequest(pathname: string, cookies?: Record<string, string>) {
+  const req = new NextRequest(new URL(`http://localhost${pathname}`))
+  if (cookies) {
+    Object.entries(cookies).forEach(([name, value]) => {
+      req.cookies.set(name, value)
+    })
+  }
+  return req
 }
 
 function mockSupabaseUser(user: object | null) {
@@ -43,13 +49,29 @@ describe('middleware', () => {
     expect(res.headers.get('location')).toContain('/home')
   })
 
-  it('allows authenticated user to access /home', async () => {
+  it('allows authenticated user to access /home when onboarded', async () => {
+    mockSupabaseUser({ id: 'user-123' })
+    const { proxy } = await import('../proxy')
+    const req = makeRequest('/home', { apex_onboarded: 'true' })
+    const res = await proxy(req)
+    expect(res.status).not.toBe(307)
+    expect(res.status).not.toBe(302)
+  })
+
+  it('redirects authenticated user without onboarded cookie to /onboarding', async () => {
     mockSupabaseUser({ id: 'user-123' })
     const { proxy } = await import('../proxy')
     const req = makeRequest('/home')
     const res = await proxy(req)
-    expect(res.status).not.toBe(307)
-    expect(res.status).not.toBe(302)
+    expect(res.headers.get('location')).toContain('/onboarding')
+  })
+
+  it('allows authenticated user to access /onboarding without onboarded cookie', async () => {
+    mockSupabaseUser({ id: 'user-123' })
+    const { proxy } = await import('../proxy')
+    const req = makeRequest('/onboarding')
+    const res = await proxy(req)
+    expect(res.headers.get('location')).toBeNull()
   })
 
   it('allows unauthenticated user to access /login', async () => {

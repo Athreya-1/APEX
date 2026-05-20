@@ -31,6 +31,7 @@ export async function proxy(request: NextRequest) {
 
   const isAuthPage = request.nextUrl.pathname.startsWith('/login')
   const isAuthCallback = request.nextUrl.pathname.startsWith('/auth/callback')
+  const isOnboardingPage = request.nextUrl.pathname.startsWith('/onboarding')
 
   if (!user && !isAuthPage && !isAuthCallback) {
     return NextResponse.redirect(new URL('/login', request.url))
@@ -38,6 +39,14 @@ export async function proxy(request: NextRequest) {
 
   if (user && isAuthPage) {
     return NextResponse.redirect(new URL('/home', request.url))
+  }
+
+  if (user && !isOnboardingPage) {
+    const isOnboarded =
+      request.cookies.get('apex_onboarded')?.value === 'true'
+    if (!isOnboarded) {
+      return NextResponse.redirect(new URL('/onboarding', request.url))
+    }
   }
 
   return supabaseResponse
