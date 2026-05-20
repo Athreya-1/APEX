@@ -1,5 +1,6 @@
 'use client'
 import { useState, useRef, useCallback } from 'react'
+import { VoiceOrb } from '@/components/input/VoiceOrb'
 
 interface UniversalInputProps {
   placeholder?: string
@@ -16,6 +17,7 @@ export function UniversalInput({
 }: UniversalInputProps) {
   const [value, setValue] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [showVoice, setShowVoice] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const handleSubmit = useCallback(async () => {
@@ -39,6 +41,17 @@ export function UniversalInput({
 
   return (
     <div className={`relative ${className}`}>
+      {showVoice && (
+        <VoiceOrb
+          mode="mini"
+          onSubmit={(text) => {
+            setShowVoice(false)
+            setValue(text)
+            onSubmit(text, undefined)
+          }}
+          onClose={() => setShowVoice(false)}
+        />
+      )}
       {/* gradient fade zone */}
       <div
         className="pointer-events-none absolute -top-8 left-0 right-0 h-8"
@@ -93,6 +106,7 @@ export function UniversalInput({
         <button
           type="button"
           aria-label="Voice input"
+          onClick={() => setShowVoice(true)}
           style={{
             width: 32, height: 32, borderRadius: 10,
             background: 'none', border: 'none',
