@@ -101,6 +101,6 @@ describe('POST /api/ai', () => {
     const res = await POST(req)
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.intent).toBe('add_task')
+    expect(body.action).toBe('add_task')
   })
 })
