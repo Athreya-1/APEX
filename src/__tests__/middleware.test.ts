@@ -29,40 +29,40 @@ describe('middleware', () => {
   })
 
   it('redirects unauthenticated user from /home to /login', async () => {
-    const { middleware } = await import('../middleware')
+    const { proxy } = await import('../proxy')
     const req = makeRequest('/home')
-    const res = await middleware(req)
+    const res = await proxy(req)
     expect(res.headers.get('location')).toContain('/login')
   })
 
   it('redirects authenticated user from /login to /home', async () => {
     mockSupabaseUser({ id: 'user-123' })
-    const { middleware } = await import('../middleware')
+    const { proxy } = await import('../proxy')
     const req = makeRequest('/login')
-    const res = await middleware(req)
+    const res = await proxy(req)
     expect(res.headers.get('location')).toContain('/home')
   })
 
   it('allows authenticated user to access /home', async () => {
     mockSupabaseUser({ id: 'user-123' })
-    const { middleware } = await import('../middleware')
+    const { proxy } = await import('../proxy')
     const req = makeRequest('/home')
-    const res = await middleware(req)
+    const res = await proxy(req)
     expect(res.status).not.toBe(307)
     expect(res.status).not.toBe(302)
   })
 
   it('allows unauthenticated user to access /login', async () => {
-    const { middleware } = await import('../middleware')
+    const { proxy } = await import('../proxy')
     const req = makeRequest('/login')
-    const res = await middleware(req)
+    const res = await proxy(req)
     expect(res.headers.get('location')).toBeNull()
   })
 
   it('allows /auth/callback regardless of auth state', async () => {
-    const { middleware } = await import('../middleware')
+    const { proxy } = await import('../proxy')
     const req = makeRequest('/auth/callback')
-    const res = await middleware(req)
+    const res = await proxy(req)
     expect(res.headers.get('location')).toBeNull()
   })
 })
