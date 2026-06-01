@@ -62,6 +62,7 @@ export default function OnboardingPage() {
   const supabase = createClient()
   const [step, setStep] = useState(0)
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [data, setData] = useState<OnboardingData>({
     courses: [{ name: '', code: '', color: 'var(--amber)' }],
     canvas_domain: 'canvas.cmu.edu',
@@ -103,62 +104,75 @@ export default function OnboardingPage() {
 
   const handleFinish = async () => {
     setSaving(true)
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) return
+    setSaveError(null)
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) {
+        setSaveError('Session expired — please sign in again.')
+        setSaving(false)
+        return
+      }
 
-    const validCourses = data.courses.filter((c) => c.name.trim())
-    for (const c of validCourses) {
-      await supabase.from('courses').insert({
-        user_id: user.id,
-        name: c.name.trim(),
-        code: c.code.trim() || null,
-        color: c.color,
-        is_active: true,
-        canvas_course_id: null,
-      })
-    }
-
-    await supabase.from('user_preferences').upsert(
-      {
-        user_id: user.id,
-        gym_duration_cascade: [
-          data.gym_duration,
-          Math.max(30, data.gym_duration - 30),
-          30,
-        ],
-        entrepreneur_daily_hours: data.entrepreneur_hours,
-        cmr_daily_hours: data.cmr_hours,
-        wake_time_default: data.wake_time,
-        sleep_time_default: data.sleep_time,
-        session_mode: data.session_mode,
-        lunch_window_start: data.lunch_window_start,
-        lunch_window_end: '15:00',
-        lunch_duration_mins: 45,
-        dinner_window_start: data.dinner_window_start,
-        dinner_window_end: '23:00',
-        dinner_duration_mins: 60,
-        shower_mins: 30,
-        skincare_mins: 30,
-        sleep_buffer_hours: 8.5,
-      },
-      { onConflict: 'user_id' },
-    )
-
-    if (data.canvas_api_token.trim()) {
-      await supabase
-        .from('users')
-        .update({
-          canvas_domain: data.canvas_domain,
-          canvas_api_token: data.canvas_api_token.trim(),
+      const validCourses = data.courses.filter((c) => c.name.trim())
+      for (const c of validCourses) {
+        const { error } = await supabase.from('courses').insert({
+          user_id: user.id,
+          name: c.name.trim(),
+          code: c.code.trim() || null,
+          color: c.color,
+          is_active: true,
+          canvas_course_id: null,
         })
-        .eq('id', user.id)
-    }
+        if (error) throw new Error(`Failed to save course "${c.name}": ${error.message}`)
+      }
 
-    document.cookie =
-      'apex_onboarded=true; path=/; max-age=31536000; SameSite=Lax'
-    router.push('/home')
+      const { error: prefError } = await supabase.from('user_preferences').upsert(
+        {
+          user_id: user.id,
+          gym_duration_cascade: [
+            data.gym_duration,
+            Math.max(30, data.gym_duration - 30),
+            30,
+          ],
+          entrepreneur_daily_hours: data.entrepreneur_hours,
+          cmr_daily_hours: data.cmr_hours,
+          wake_time_default: data.wake_time,
+          sleep_time_default: data.sleep_time,
+          session_mode: data.session_mode,
+          lunch_window_start: data.lunch_window_start,
+          lunch_window_end: '15:00',
+          lunch_duration_mins: 45,
+          dinner_window_start: data.dinner_window_start,
+          dinner_window_end: '23:00',
+          dinner_duration_mins: 60,
+          shower_mins: 30,
+          skincare_mins: 30,
+          sleep_buffer_hours: 8.5,
+        },
+        { onConflict: 'user_id' },
+      )
+      if (prefError) throw new Error(`Failed to save preferences: ${prefError.message}`)
+
+      if (data.canvas_api_token.trim()) {
+        const { error: canvasError } = await supabase
+          .from('users')
+          .update({
+            canvas_domain: data.canvas_domain,
+            canvas_api_token: data.canvas_api_token.trim(),
+          })
+          .eq('id', user.id)
+        if (canvasError) throw new Error(`Failed to save Canvas token: ${canvasError.message}`)
+      }
+
+      document.cookie =
+        'apex_onboarded=true; path=/; max-age=31536000; SameSite=Lax'
+      router.push('/home')
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
+      setSaving(false)
+    }
   }
 
   return (
@@ -586,6 +600,25 @@ export default function OnboardingPage() {
           </div>
         )}
       </div>
+
+      {saveError && (
+        <div
+          style={{
+            marginTop: 12,
+            width: '100%',
+            maxWidth: 400,
+            padding: '10px 14px',
+            background: 'var(--red-bg, #2a1414)',
+            border: '1px solid var(--red, #f87171)',
+            borderRadius: 8,
+            color: 'var(--red, #f87171)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 12,
+          }}
+        >
+          {saveError}
+        </div>
+      )}
 
       {/* Navigation buttons */}
       <div

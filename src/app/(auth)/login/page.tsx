@@ -1,9 +1,18 @@
 'use client'
 
+import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+
+const ERROR_MESSAGES: Record<string, string> = {
+  auth_callback_failed: 'Sign-in failed — the link may have expired. Please try again.',
+  no_code: 'Sign-in was cancelled or the link was invalid. Please try again.',
+}
 
 export default function LoginPage() {
   const supabase = createClient()
+  const searchParams = useSearchParams()
+  const errorKey = searchParams.get('error')
+  const errorMsg = errorKey ? (ERROR_MESSAGES[errorKey] ?? 'Sign-in failed. Please try again.') : null
 
   async function handleGoogleSignIn() {
     await supabase.auth.signInWithOAuth({
@@ -20,6 +29,23 @@ export default function LoginPage() {
       style={{ background: 'var(--bg)' }}
     >
       <div className="flex flex-col items-center gap-8">
+        {errorMsg && (
+          <div
+            style={{
+              padding: '10px 16px',
+              background: 'var(--red-bg, #2a1414)',
+              border: '1px solid var(--red, #f87171)',
+              borderRadius: 8,
+              color: 'var(--red, #f87171)',
+              fontFamily: 'var(--font-mono)',
+              fontSize: 12,
+              maxWidth: 320,
+              textAlign: 'center',
+            }}
+          >
+            {errorMsg}
+          </div>
+        )}
         <div className="text-center">
           <h1
             className="text-5xl font-head font-bold tracking-tight"
