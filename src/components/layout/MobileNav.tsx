@@ -7,8 +7,12 @@ const NAV_ITEMS = [
   { href: '/home', label: 'Home', icon: HomeIcon },
   { href: '/plan', label: 'Plan', icon: CalendarIcon },
   { href: '/tasks', label: 'Tasks', icon: ListIcon },
+  { href: '/habits', label: 'Habits', icon: HabitIcon },
+  { href: '/settings', label: 'Settings', icon: SettingsIcon },
+  /* hidden in V1 (routes kept on disk, restorable):
   { href: '/notes', label: 'Notes', icon: DocumentIcon },
   { href: '/review', label: 'Review', icon: WaveformIcon },
+  */
 ] as const
 
 export function MobileNav() {
@@ -98,7 +102,7 @@ function ListIcon({ active }: { active: boolean }) {
   )
 }
 
-function DocumentIcon({ active }: { active: boolean }) {
+function HabitIcon({ active }: { active: boolean }) {
   return (
     <svg
       width="22"
@@ -111,13 +115,13 @@ function DocumentIcon({ active }: { active: boolean }) {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
-      <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
+      <path d="M20 7L9.5 17.5 4 12" />
+      <path d="M3 21c3-3 6-3 9 0" opacity="0.5" />
     </svg>
   )
 }
 
-function WaveformIcon({ active }: { active: boolean }) {
+function SettingsIcon({ active }: { active: boolean }) {
   return (
     <svg
       width="22"
@@ -130,7 +134,8 @@ function WaveformIcon({ active }: { active: boolean }) {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <path d="M2 12h3l3-8 4 16 3-10 2 4 2-2h3" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.3 1a7 7 0 0 0-1.7-1l-.3-2.5H9.4l-.3 2.5a7 7 0 0 0-1.7 1l-2.3-1-2 3.4L3 11a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 1.7 1l.3 2.5h4.2l.3-2.5a7 7 0 0 0 1.7-1l2.3 1 2-3.4-2-1.5a7 7 0 0 0 .1-1z" />
     </svg>
   )
 }

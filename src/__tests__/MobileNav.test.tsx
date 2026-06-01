@@ -30,11 +30,19 @@ describe('MobileNav', () => {
     expect(links).toHaveLength(5)
   })
 
-  it('renders all 5 required tab labels', async () => {
+  it('renders the 5 V1 tab labels', async () => {
     const { MobileNav } = await import('@/components/layout/MobileNav')
     render(<MobileNav />)
-    ;['Home', 'Plan', 'Tasks', 'Notes', 'Review'].forEach((label) => {
+    ;['Home', 'Plan', 'Tasks', 'Habits', 'Settings'].forEach((label) => {
       expect(screen.getByText(label)).toBeInTheDocument()
+    })
+  })
+
+  it('hides features deferred from V1', async () => {
+    const { MobileNav } = await import('@/components/layout/MobileNav')
+    render(<MobileNav />)
+    ;['Notes', 'Review'].forEach((label) => {
+      expect(screen.queryByText(label)).not.toBeInTheDocument()
     })
   })
 

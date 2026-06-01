@@ -10,10 +10,12 @@ const SIDEBAR_ITEMS: NavItem[] = [
   { href: '/plan', label: 'Daily Plan' },
   { href: '/tasks', label: 'Task Manager' },
   { href: '/habits', label: 'Habit Tracker' },
+  /* hidden in V1 (routes kept on disk, restorable):
   { href: '/notes', label: 'Notepads' },
   null,
   { href: '/exams', label: 'Exam Plans' },
   { href: '/knowledge', label: 'Knowledge Bank' },
+  */
   null,
   { href: '/settings', label: 'Settings' },
 ]

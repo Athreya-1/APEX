@@ -29,21 +29,20 @@ describe('DesktopSidebar', () => {
     expect(screen.getByText('APEX')).toBeInTheDocument()
   })
 
-  it('renders all required navigation labels', async () => {
+  it('renders only V1 navigation labels', async () => {
     const { DesktopSidebar } = await import('@/components/layout/DesktopSidebar')
     render(<DesktopSidebar />)
-    const expectedLabels = [
-      'Home',
-      'Daily Plan',
-      'Task Manager',
-      'Habit Tracker',
-      'Notepads',
-      'Exam Plans',
-      'Knowledge Bank',
-      'Settings',
-    ]
+    const expectedLabels = ['Home', 'Daily Plan', 'Task Manager', 'Habit Tracker', 'Settings']
     expectedLabels.forEach((label) => {
       expect(screen.getByText(label)).toBeInTheDocument()
+    })
+  })
+
+  it('hides features deferred from V1', async () => {
+    const { DesktopSidebar } = await import('@/components/layout/DesktopSidebar')
+    render(<DesktopSidebar />)
+    ;['Notepads', 'Exam Plans', 'Knowledge Bank'].forEach((label) => {
+      expect(screen.queryByText(label)).not.toBeInTheDocument()
     })
   })
 
