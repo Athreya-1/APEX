@@ -71,6 +71,11 @@ export interface UserPreferences {
   auto_plan_fallback_time: string
   checkin_enabled: boolean
   urgency_flip_warning_hours: number
+  // V1 engine levers
+  work_life_dial: number // 0=protect rest .. 1=invest
+  daily_work_hour_cap: number
+  min_chunk_minutes: number
+  max_consecutive_heavy: number
 }
 
 export interface Course {
@@ -85,6 +90,9 @@ export interface Course {
   has_exams: boolean
   study_pref: Record<string, unknown> | null
   lecture_review_mins: number
+  // V1 effort priors
+  difficulty_multiplier: number
+  velocity_modifier: number // EWMA E_actual/E_estimated
   created_at: string
   updated_at: string
   // joined
@@ -127,9 +135,14 @@ export interface Task {
   ai_estimated_hours: number | null
   actual_hours: number | null
   hours_elapsed: number
-  urgency_score: number // computed column
+  urgency_score: number // cached, engine-written (SQL trigger retired in V1)
   eisenhower_quadrant: EisenhowerQuadrant
   priority_override: string | null
+  // V1 fields
+  metadata: Record<string, unknown>
+  triangulation_multiplier: number
+  importance: number // 1=low .. 4=critical
+  is_at_risk: boolean
   status: TaskStatus
   completed_at: string | null
   source: TaskSource
@@ -165,6 +178,9 @@ export interface DailyPlan {
   cmr_cut: boolean
   entrepreneur_cut: boolean
   gym_duration_used: number | null
+  // V1 dial + breach record
+  work_life_dial_used: number | null
+  work_hour_cap_breached: boolean
   user_constraints: {
     gaps?: Array<{ from: string; to: string }>
     notes?: string
@@ -185,6 +201,10 @@ export interface PlanBlock {
   label: string | null
   description: string | null
   gcal_event_id: string | null
+  // V1 drift capture + cognitive class
+  original_start_time: string | null
+  original_end_time: string | null
+  cognitive_class: string | null
   status: BlockStatus
   checkin_done_at: string | null
   checkin_response: {
@@ -208,6 +228,15 @@ export interface Habit {
   target_days: number[] | null
   is_active: boolean
   sort_order: number
+  // V1 scheduling model
+  mode: HabitMode
+  duration_mins: number | null
+  frequency_type: HabitFrequencyType
+  frequency_target: number
+  time_ranges: Array<{ start: string; end: string }> | null
+  goal_id: string | null
+  notification_time: string | null
+  cognitive_class: string
   created_at: string
   // computed
   current_streak?: number
@@ -385,4 +414,120 @@ export interface VoiceOrbState {
   listening: boolean
   transcript: string
   processing: boolean
+}
+
+// ── V1 ENGINE & DOMAIN TYPES ──
+
+export type CognitiveClass =
+  | 'heavy_focus' | 'light_admin' | 'creative' | 'physical' | 'restorative'
+
+export type SlotState =
+  | 'available' | 'fixed' | 'habit' | 'focus' | 'break'
+  | 'meal' | 'buffer' | 'rest_lockout'
+
+export type HabitMode = 'time_blocked' | 'check_off'
+export type HabitFrequencyType = 'daily' | 'per_week' | 'weekdays' | 'per_month'
+export type GoalStatus = 'active' | 'paused' | 'done' | 'archived'
+export type FieldKind = 'text' | 'single_select' | 'checkbox'
+export type GuardrailKind =
+  | 'no_work_before' | 'no_work_after' | 'protected_window' | 'break_day'
+
+export interface PaddedEffort {
+  estimateHours: number
+  paddedHours: number
+  stdevHours: number
+  sampleSize: number
+  source: 'bucket_history' | 'type_history' | 'adjusted_prior'
+  confidence: 'cold' | 'warming' | 'warm'
+}
+
+export interface UrgencyResult {
+  taskId: string
+  score: number
+  isAtRisk: boolean
+  slackHours: number
+  paddedHours: number
+}
+
+export interface TimelineSlot {
+  index: number
+  start: string
+  end: string
+  state: SlotState
+  assignedId: string | null
+  cognitiveClass?: CognitiveClass
+}
+
+export interface Goal {
+  id: string
+  user_id: string
+  name: string
+  description: string | null
+  target_metric: string | null
+  deadline: string | null
+  color: string
+  status: GoalStatus
+  sort_order: number
+  created_at: string
+  updated_at: string
+  habits?: Habit[]
+}
+
+export interface TaskFieldDef {
+  id: string
+  user_id: string
+  name: string
+  kind: FieldKind
+  options: string[] | null
+  sort_order: number
+  created_at: string
+}
+
+export interface TaskFieldValue {
+  id: string
+  user_id: string
+  task_id: string
+  field_def_id: string
+  value: unknown
+}
+
+export interface TaskPrior {
+  id: string
+  user_id: string | null
+  category_keyword: string
+  default_minutes: number
+}
+
+export interface FocusSession {
+  id: string
+  user_id: string
+  task_id: string | null
+  plan_block_id: string | null
+  started_at: string
+  ended_at: string
+  interrupted: boolean
+  user_reported_efficiency: number | null
+  cognitive_class: string | null
+  created_at: string
+}
+
+export interface DriftEvent {
+  id: string
+  user_id: string
+  plan_block_id: string | null
+  kind: 'moved' | 'skipped' | 'overran' | 'early_done' | 'deleted'
+  original_start: string | null
+  new_start: string | null
+  delta_mins: number | null
+  created_at: string
+}
+
+export interface Guardrail {
+  id: string
+  user_id: string
+  kind: GuardrailKind
+  payload: Record<string, unknown>
+  hard: boolean
+  is_active: boolean
+  created_at: string
 }

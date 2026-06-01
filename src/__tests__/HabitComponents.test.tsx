@@ -4,6 +4,10 @@ const mockHabit = {
   id: 'h1', user_id: 'u1', name: 'Gym', icon: '🏋️',
   color: '#f5a623', target_frequency: 'daily' as const,
   target_days: null, is_active: true, sort_order: 0,
+  mode: 'time_blocked' as const, duration_mins: 90,
+  frequency_type: 'per_week' as const, frequency_target: 3,
+  time_ranges: null, goal_id: null, notification_time: null,
+  cognitive_class: 'physical',
   created_at: new Date().toISOString(),
 }
 
