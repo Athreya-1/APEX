@@ -163,7 +163,7 @@ V2 chained/blocking tasks; learned energy-curve & burnout prediction; habit-devi
 ## Execution status tracker
 
 - [x] Branch `feat/apex-v1-planner` created; in-progress work checkpointed; baseline tests captured (93/4).
-- [ ] Plan 01 — Foundation
+- [x] Plan 01 — Foundation (migration + V1 types + surface reduction + proxy verified as Next 16 middleware + login test fixed). Suite: 103/0.
 - [ ] Plan 02 — Effort/estimation
 - [ ] Plan 03 — Urgency model
 - [ ] Plan 04 — Scheduling engine

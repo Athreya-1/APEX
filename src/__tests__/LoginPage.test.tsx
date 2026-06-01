@@ -13,6 +13,12 @@ jest.mock('@/lib/supabase/client', () => ({
   createClient: jest.fn(() => mockSupabaseClient),
 }))
 
+jest.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams(''),
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
+  usePathname: () => '/login',
+}))
+
 describe('LoginPage', () => {
   beforeEach(() => {
     jest.clearAllMocks()
