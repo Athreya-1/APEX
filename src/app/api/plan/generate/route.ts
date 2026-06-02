@@ -1,30 +1,35 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
-import { PLANNING_SYSTEM_PROMPT } from '@/lib/ai/prompts'
-import { getEventsForDate, createGCalEvent } from '@/lib/calendar/gcal'
-import { estimateHours } from '@/lib/planning/effort'
-import { sortTasksForScheduling } from '@/lib/planning/urgency'
-import type { Task, TaskTypeTag, BlockType } from '@/types'
+import { getEventsForDate, createGCalEvent, updateGCalEvent, deleteGCalEvent } from '@/lib/calendar/gcal'
+import { diffGCalBlocks, applyGCalSync } from '@/lib/calendar/gcal-sync'
+import { generatePlan } from '@/lib/planning/engine'
+import { buildPlanRequest, type TaskPadded } from '@/lib/planning/orchestrator'
+import { engineBlocksToInserts } from '@/lib/planning/persist'
+import { computePaddedEffort } from '@/lib/planning/estimation'
+import type { Course, Task } from '@/types'
 
 interface GenerateRequestBody {
-  plan_date: string // YYYY-MM-DD
-  sleep_time: string // ISO — when user plans to sleep tonight
+  plan_date: string
+  sleep_time: string
   session_mode?: '90_20' | '50_10'
-  constraints?: {
-    gaps?: Array<{ from: string; to: string }>
-    skip_gym?: boolean
-    skip_cmr?: boolean
-    skip_entrepreneur?: boolean
-  }
+  constraints?: Record<string, unknown>
 }
 
-interface PlanBlockInput {
-  block_type: string
-  start_time: string
-  end_time: string
-  label: string
-  description?: string
-  task_name?: string
+function taskToPadded(task: Task, course: Course | undefined): TaskPadded {
+  const priorMins = (task.estimated_hours ?? task.ai_estimated_hours ?? 2) * 60
+  const effort = computePaddedEffort({
+    priorMinutes: priorMins,
+    courseDifficulty: course?.difficulty_multiplier ?? 1,
+    courseVelocity: course?.velocity_modifier ?? 1,
+    triangulation: task.triangulation_multiplier ?? 1,
+    bucket: null,
+    type: null,
+  })
+  return {
+    task,
+    paddedHours: effort.paddedHours,
+    meanHours: effort.estimateHours,
+    stdevHours: effort.stdevHours,
+  }
 }
 
 export async function POST(request: Request) {
@@ -33,124 +38,73 @@ export async function POST(request: Request) {
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body: GenerateRequestBody = await request.json()
-  const { plan_date, sleep_time, session_mode = '90_20', constraints } = body
+  const { plan_date, sleep_time, session_mode = '90_20' } = body
+  const now = new Date().toISOString()
 
-  // Fetch all data needed for planning
   const [
     { data: userData },
     { data: tasks },
     { data: courses },
     { data: prefs },
+    { data: guardrails },
+    { data: habits },
+    { data: habitLogs },
   ] = await Promise.all([
     supabase.from('users').select('google_calendar_token,google_calendar_refresh_token,display_name').eq('id', user.id).single(),
-    supabase.from('tasks').select('*').eq('user_id', user.id).in('status', ['pending', 'in_progress']).order('urgency_score', { ascending: false }),
+    supabase.from('tasks').select('*').eq('user_id', user.id).in('status', ['pending', 'in_progress']),
     supabase.from('courses').select('*').eq('user_id', user.id).eq('is_active', true),
     supabase.from('user_preferences').select('*').eq('user_id', user.id).single(),
+    supabase.from('guardrails').select('*').eq('user_id', user.id).eq('is_active', true),
+    supabase.from('habits').select('*').eq('user_id', user.id).eq('is_active', true),
+    supabase.from('habit_logs').select('*').eq('user_id', user.id),
   ])
+
+  if (!prefs) {
+    return Response.json({ error: 'User preferences not found' }, { status: 400 })
+  }
+
+  const courseById = new Map((courses ?? []).map((c: Course) => [c.id, c]))
+  const paddedTasks = (tasks ?? []).map((t: Task) => taskToPadded(t, t.course_id ? courseById.get(t.course_id) : undefined))
+
+  const sleepDate = new Date(sleep_time)
+  const wakeDate = new Date(sleepDate.getTime() + (prefs.sleep_buffer_hours ?? 8.5) * 3_600_000)
+  const windowStart = wakeDate.toISOString()
+  const windowEnd = sleep_time
 
   const { data: courseSessions } = await supabase
     .from('course_sessions')
     .select('*')
-    .in('course_id', (courses ?? []).map((c: { id: string }) => c.id))
+    .in('course_id', (courses ?? []).map((c: Course) => c.id))
 
-  // Fetch GCal events if user has connected
-  let gcalEvents: Array<{ start: string; end: string; title: string }> = []
+  let gcalEvents: Awaited<ReturnType<typeof getEventsForDate>> = []
   if (userData?.google_calendar_token) {
     try {
-      const events = await getEventsForDate(
+      gcalEvents = await getEventsForDate(
         userData.google_calendar_token,
-        userData.google_calendar_refresh_token,
+        userData.google_calendar_refresh_token ?? null,
         plan_date,
       )
-      gcalEvents = events.map((e) => ({ start: e.start, end: e.end, title: e.title }))
-    } catch {
-      // GCal unavailable — continue without it
-    }
+    } catch { /* continue without GCal */ }
   }
 
-  // Estimate hours for tasks that don't have estimates
-  const tasksWithEstimates = await Promise.all(
-    (tasks ?? []).map(async (task: Task) => {
-      if (task.estimated_hours) return task
-      const estimate = await estimateHours(
-        task.task_type_tag as TaskTypeTag,
-        task.course_id ?? null,
-        user.id,
-      )
-      return { ...task, estimated_hours: estimate.estimated_hours }
-    }),
-  )
+  const planRequest = buildPlanRequest({
+    planDate: plan_date,
+    windowStart,
+    windowEnd,
+    now,
+    sessionMode: session_mode,
+    prefs,
+    tasks: paddedTasks,
+    habits: habits ?? [],
+    habitLogs: habitLogs ?? [],
+    guardrails: guardrails ?? [],
+    gcalEvents,
+    courseSessions: courseSessions ?? [],
+  })
 
-  // Sort tasks for scheduling
-  const sortedTasks = sortTasksForScheduling(tasksWithEstimates, plan_date)
+  const result = generatePlan(planRequest)
+  const inserts = engineBlocksToInserts(result.blocks)
 
-  // Calculate wake time from prefs (sleep_time is tonight, wake is tomorrow)
-  const sleepDate = new Date(sleep_time)
-  const wakeDate = new Date(sleepDate.getTime() + ((prefs?.sleep_buffer_hours ?? 8.5) * 3600 * 1000))
-
-  // Build context for Claude
-  const planningContext = {
-    user_name: userData?.display_name ?? 'User',
-    plan_date,
-    wake_time: wakeDate.toISOString(),
-    sleep_time,
-    session_mode,
-    tasks: sortedTasks.slice(0, 20).map((t) => ({
-      id: t.id,
-      task_name: t.task_name,
-      topic: t.topic,
-      task_type_tag: t.task_type_tag,
-      estimated_hours: t.estimated_hours,
-      due_date: t.due_date,
-      do_date: t.do_date,
-      urgency_score: t.urgency_score,
-      eisenhower_quadrant: t.eisenhower_quadrant,
-    })),
-    courses: (courses ?? []).map((c: { name: string; id: string }) => ({ name: c.name, id: c.id })),
-    course_sessions: (courseSessions ?? []).slice(0, 20),
-    gcal_events: gcalEvents,
-    preferences: {
-      gym_duration_cascade: prefs?.gym_duration_cascade ?? [90, 60, 30],
-      lunch_window: { start: prefs?.lunch_window_start ?? '11:00', end: prefs?.lunch_window_end ?? '15:00', duration_mins: prefs?.lunch_duration_mins ?? 45 },
-      dinner_window: { start: prefs?.dinner_window_start ?? '19:00', end: prefs?.dinner_window_end ?? '23:00', duration_mins: prefs?.dinner_duration_mins ?? 60 },
-      entrepreneur_daily_hours: prefs?.entrepreneur_daily_hours ?? 3,
-      cmr_daily_hours: prefs?.cmr_daily_hours ?? 3,
-      shower_mins: prefs?.shower_mins ?? 30,
-      skincare_mins: prefs?.skincare_mins ?? 30,
-    },
-    constraints: constraints ?? {},
-  }
-
-  // Call Claude Sonnet for intelligent planning
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-  let planBlocks: PlanBlockInput[] = []
-
-  try {
-    const systemPrompt = typeof PLANNING_SYSTEM_PROMPT === 'string'
-      ? PLANNING_SYSTEM_PROMPT
-      : 'Generate a detailed daily plan as a JSON array of blocks with block_type, start_time, end_time, label, description fields.'
-
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: JSON.stringify(planningContext) }],
-    })
-
-    const text = response.content[0].type === 'text' ? response.content[0].text : '[]'
-    const jsonMatch = text.match(/\[[\s\S]*\]/)
-    if (jsonMatch) {
-      planBlocks = JSON.parse(jsonMatch[0])
-    }
-  } catch {
-    // Fall back to basic schedule if Claude fails
-    planBlocks = [
-      { block_type: 'routine', start_time: wakeDate.toISOString(), end_time: new Date(wakeDate.getTime() + 40 * 60000).toISOString(), label: 'Morning routine' },
-      { block_type: 'sleep', start_time: sleepDate.toISOString(), end_time: new Date(sleepDate.getTime() + 8 * 3600000).toISOString(), label: 'Sleep' },
-    ]
-  }
-
-  // Create or update daily_plans row
   const { data: existingPlan } = await supabase
     .from('daily_plans')
     .select('id')
@@ -164,62 +118,85 @@ export async function POST(request: Request) {
     await supabase.from('plan_blocks').delete().eq('plan_id', planId)
     await supabase.from('daily_plans').update({
       sleep_time,
-      wake_time: wakeDate.toISOString(),
+      wake_time: windowStart,
       session_mode,
       status: 'confirmed',
+      work_life_dial_used: result.dialUsed,
+      work_hour_cap_breached: result.capBreached,
+      generated_by: 'user',
     }).eq('id', planId)
   } else {
-    const { data: newPlan } = await supabase.from('daily_plans').insert({
+    const { data: newPlan, error } = await supabase.from('daily_plans').insert({
       user_id: user.id,
       plan_date,
       sleep_time,
-      wake_time: wakeDate.toISOString(),
+      wake_time: windowStart,
       session_mode,
       status: 'confirmed',
+      work_life_dial_used: result.dialUsed,
+      work_hour_cap_breached: result.capBreached,
+      generated_by: 'user',
     }).select().single()
-    planId = newPlan!.id
+    if (error || !newPlan) return Response.json({ error: 'Failed to create plan' }, { status: 500 })
+    planId = newPlan.id
   }
 
-  // Insert plan blocks + optionally write to GCal
-  const insertedBlocks = []
-  for (let i = 0; i < planBlocks.length; i++) {
-    const b = planBlocks[i]
+  const insertedBlocks: Array<{ id: string; task_id: string | null; block_type: string; start_time: string; end_time: string; label: string | null; gcal_event_id: string | null }> = []
 
-    const matchingTask = b.task_name
-      ? tasksWithEstimates.find((t) => t.task_name === b.task_name)
-      : null
-
-    const { data: block } = await supabase.from('plan_blocks').insert({
+  for (const row of inserts) {
+    const { data: block, error } = await supabase.from('plan_blocks').insert({
       plan_id: planId,
-      task_id: matchingTask?.id ?? null,
-      block_type: (b.block_type ?? 'custom') as BlockType,
+      user_id: user.id,
+      ...row,
+    }).select().single()
+    if (block && !error) insertedBlocks.push(block)
+  }
+
+  // Cache urgency scores on tasks
+  for (const t of planRequest.tasks) {
+    await supabase.from('tasks').update({
+      urgency_score: t.urgencyScore,
+      is_at_risk: t.isAtRisk,
+      importance: t.importance,
+    }).eq('id', t.id)
+  }
+
+  // GCal diff-sync
+  if (userData?.google_calendar_token) {
+    const syncBlocks = insertedBlocks.map((b) => ({
+      id: b.id,
+      label: b.label,
       start_time: b.start_time,
       end_time: b.end_time,
-      label: b.label,
-      description: b.description ?? null,
-      status: 'scheduled',
-      sort_order: i,
-    }).select().single()
-
-    if (block) {
-      insertedBlocks.push(block)
-
-      if (userData?.google_calendar_token) {
-        try {
-          const gcalId = await createGCalEvent(
-            userData.google_calendar_token,
-            userData.google_calendar_refresh_token ?? null,
-            { ...block, label: block.label ?? block.block_type },
-          )
-          if (gcalId) {
-            await supabase.from('plan_blocks').update({ gcal_event_id: gcalId }).eq('id', block.id)
-          }
-        } catch {
-          // GCal write failed — continue
-        }
-      }
+      block_type: b.block_type,
+      gcal_event_id: b.gcal_event_id,
+    }))
+    const diff = diffGCalBlocks(syncBlocks, gcalEvents)
+    const token = userData.google_calendar_token
+    const refresh = userData.google_calendar_refresh_token ?? null
+    const created = await applyGCalSync(diff, {
+      create: (block) => createGCalEvent(token, refresh, {
+        id: block.id,
+        label: block.label,
+        description: block.description ?? null,
+        start_time: block.start_time,
+        end_time: block.end_time,
+        block_type: block.block_type,
+      }),
+      update: (gcalId, block) => updateGCalEvent(token, refresh, gcalId, block),
+      remove: (gcalId) => deleteGCalEvent(token, refresh, gcalId),
+    })
+    for (const [blockId, gcalId] of Object.entries(created)) {
+      await supabase.from('plan_blocks').update({ gcal_event_id: gcalId }).eq('id', blockId)
     }
   }
 
-  return Response.json({ plan_id: planId, blocks: insertedBlocks, count: insertedBlocks.length })
+  return Response.json({
+    plan_id: planId,
+    blocks: insertedBlocks,
+    warnings: result.warnings,
+    reasoning: result.reasoning,
+    cap_breached: result.capBreached,
+    count: insertedBlocks.length,
+  })
 }

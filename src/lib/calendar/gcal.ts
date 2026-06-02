@@ -116,6 +116,43 @@ export async function createGCalEvent(
 }
 
 /**
+ * Update an existing GCal event for a plan block.
+ */
+export async function updateGCalEvent(
+  accessToken: string,
+  refreshToken: string | null,
+  gcalEventId: string,
+  block: {
+    label: string | null
+    description?: string | null
+    start_time: string
+    end_time: string
+    block_type: string
+  },
+): Promise<void> {
+  try {
+    const auth = getOAuthClient(accessToken, refreshToken ?? undefined)
+    const calendar = google.calendar({ version: 'v3', auth })
+    const colorMap: Record<string, string> = {
+      deep_work: '5', entrepreneur: '5', class: '1', meal: '2', cmr: '4', gym: '3', break: '8', routine: '8', sleep: '8',
+    }
+    await calendar.events.patch({
+      calendarId: 'primary',
+      eventId: gcalEventId,
+      requestBody: {
+        summary: `[APEX] ${block.label ?? block.block_type}`,
+        description: block.description ?? '',
+        start: { dateTime: block.start_time },
+        end: { dateTime: block.end_time },
+        colorId: colorMap[block.block_type] ?? '8',
+      },
+    })
+  } catch (error) {
+    console.error('GCal update error:', error)
+  }
+}
+
+/**
  * Delete a GCal event by its event ID.
  */
 export async function deleteGCalEvent(

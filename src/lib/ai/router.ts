@@ -282,14 +282,12 @@ export async function handleIntent(
           ? new Date(Date.now() + 86400000).toISOString().slice(0, 10)
           : today
 
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL?.replace('.supabase.co', '') ?? ''}/api/plan/replan`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ plan_date: planDate, instruction, constraints }),
-        },
-      )
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
+      const res = await fetch(`${appUrl}/api/plan/replan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan_date: planDate, instruction, from_time: new Date().toISOString() }),
+      })
       const data = await res.json().catch(() => ({}))
       return { action: 'replan', result: data, confirmation_needed: false }
     }
