@@ -1,5 +1,5 @@
 import {
-  blendShrinkage, summarizeActuals, updateVelocityEWMA,
+  blendShrinkage, summarizeActuals, updateVelocityEWMA, computePaddedEffort,
 } from '@/lib/planning/estimation'
 
 describe('blendShrinkage', () => {
@@ -44,5 +44,49 @@ describe('updateVelocityEWMA', () => {
   })
   it('guards divide-by-zero (est=0 returns prev)', () => {
     expect(updateVelocityEWMA(1.2, 5, 0)).toBeCloseTo(1.2)
+  })
+})
+
+describe('computePaddedEffort', () => {
+  const base = {
+    priorMinutes: 150, courseDifficulty: 1, courseVelocity: 1,
+    triangulation: 1, bucket: null, type: null,
+  }
+  it('cold start uses adjusted prior with a 50% pad', () => {
+    const e = computePaddedEffort(base)
+    expect(e.estimateHours).toBeCloseTo(2.5)        // 150/60
+    expect(e.stdevHours).toBeCloseTo(1.25)          // 2.5*0.5
+    expect(e.paddedHours).toBeCloseTo(3.13, 1)      // 2.5 + 0.5*1.25
+    expect(e.source).toBe('adjusted_prior')
+    expect(e.confidence).toBe('cold')
+    expect(e.sampleSize).toBe(0)
+  })
+  it('course difficulty and triangulation scale the prior', () => {
+    const e = computePaddedEffort({ ...base, courseDifficulty: 1.3, triangulation: 1.5 })
+    expect(e.estimateHours).toBeCloseTo(4.88, 1)    // 2.5*1.3*1.5
+  })
+  it('bucket history blends toward learned with shrinkage', () => {
+    const e = computePaddedEffort({ ...base, bucket: { meanHours: 5, stdevHours: 0.8, n: 3 } })
+    // blend(5, 2.5, 3) = 0.5*5 + 0.5*2.5 = 3.75
+    expect(e.estimateHours).toBeCloseTo(3.75)
+    expect(e.source).toBe('bucket_history')
+    expect(e.confidence).toBe('warming')
+    expect(e.paddedHours).toBeCloseTo(4.15, 1)      // 3.75 + 0.5*0.8
+  })
+  it('warm bucket (n>=5) reports warm confidence and tracks learned closely', () => {
+    const e = computePaddedEffort({ ...base, bucket: { meanHours: 5, stdevHours: 1, n: 12 } })
+    expect(e.confidence).toBe('warm')
+    expect(e.estimateHours).toBeGreaterThan(4.3)    // blend(5,2.5,12) = 4.5
+  })
+  it('type history applies course velocity', () => {
+    const e = computePaddedEffort({ ...base, courseVelocity: 1.4, type: { meanHours: 3, stdevHours: 0.5, n: 4 } })
+    // learned = 3*1.4 = 4.2 ; blend(4.2, 2.5, 4) with k=3 -> (4/7)*4.2 + (3/7)*2.5 = 3.47
+    expect(e.estimateHours).toBeCloseTo(3.47, 1)
+    expect(e.source).toBe('type_history')
+  })
+  it('exam with zero prior and no history stays zero', () => {
+    const e = computePaddedEffort({ ...base, priorMinutes: 0 })
+    expect(e.estimateHours).toBe(0)
+    expect(e.paddedHours).toBe(0)
   })
 })

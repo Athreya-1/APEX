@@ -55,3 +55,51 @@ export function updateVelocityEWMA(
   const ratio = eActual / eEstimated
   return prev * (1 - alpha) + ratio * alpha
 }
+
+export interface EffortInput {
+  priorMinutes: number            // base prior for the (type) from task_priors
+  courseDifficulty: number        // default 1.0
+  courseVelocity: number          // default 1.0 (EWMA)
+  triangulation: number           // default 1.0 (0.6 / 1.0 / 1.5)
+  bucket: ActualsSummary | null   // course+type history
+  type: ActualsSummary | null     // global type history
+}
+
+function round2(x: number): number { return Math.round(x * 100) / 100 }
+
+export function computePaddedEffort(input: EffortInput): PaddedEffort {
+  const { priorMinutes, courseDifficulty, courseVelocity, triangulation, bucket, type } = input
+  const adjustedPrior = (priorMinutes / 60) * courseDifficulty * triangulation
+
+  let estimate: number, stdev: number, n: number, source: PaddedEffort['source']
+
+  if (bucket && bucket.n > 0) {
+    estimate = blendShrinkage(bucket.meanHours, adjustedPrior, bucket.n)
+    stdev = bucket.stdevHours
+    n = bucket.n
+    source = 'bucket_history'
+  } else if (type && type.n > 0) {
+    const learned = type.meanHours * courseVelocity
+    estimate = blendShrinkage(learned, adjustedPrior, type.n)
+    stdev = type.stdevHours
+    n = type.n
+    source = 'type_history'
+  } else {
+    estimate = adjustedPrior * courseVelocity
+    stdev = estimate * 0.5
+    n = 0
+    source = 'adjusted_prior'
+  }
+
+  const paddedHours = estimate + PAD_K * stdev
+  const confidence: PaddedEffort['confidence'] = n >= 5 ? 'warm' : n >= 2 ? 'warming' : 'cold'
+
+  return {
+    estimateHours: round2(estimate),
+    paddedHours: round2(paddedHours),
+    stdevHours: round2(stdev),
+    sampleSize: n,
+    source,
+    confidence,
+  }
+}
