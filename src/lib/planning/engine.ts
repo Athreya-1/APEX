@@ -1,6 +1,8 @@
-import type { CognitiveClass, TimelineSlot } from '@/types'
-import { freeRuns, lockRange } from './timeline'
-import type { EngineBlock, EngineTask, PlanRequest, ReasoningNote, SkeletonItem } from './engine-types'
+import type { CognitiveClass, SlotState, TimelineSlot } from '@/types'
+import { buildTimeline, freeRuns, lockRange } from './timeline'
+import type {
+  EngineBlock, EngineHabit, EngineTask, PlanRequest, PlanResult, PlanWarning, ReasoningNote, SkeletonItem,
+} from './engine-types'
 
 import { SLOT_MINUTES } from './timeline'
 
@@ -281,4 +283,143 @@ export function placeTasks(
   }
 
   return { blocks, scheduledHoursByTask, reasoning }
+}
+
+// ── Habit placement (single contiguous blocks; cascade tiers, time ranges) ──
+
+interface HabitPlacement { blocks: EngineBlock[]; reasoning: ReasoningNote[]; lapsed: EngineHabit[] }
+
+function placeHabits(timeline: TimelineSlot[], request: PlanRequest): HabitPlacement {
+  const blocks: EngineBlock[] = []
+  const reasoning: ReasoningNote[] = []
+  const lapsed: EngineHabit[] = []
+
+  for (const habit of request.habits) {
+    if (habit.mode !== 'time_blocked') continue // check_off habits aren't time-placed
+    const tiers = habit.cascade && habit.cascade.length > 0 ? habit.cascade : [habit.durationMins]
+
+    let placed = false
+    for (const tier of tiers) {
+      const need = Math.max(1, Math.round(tier / SLOT_MINUTES))
+      const runs = freeRuns(timeline)
+        .filter((r) => r.slotCount >= need)
+        .sort((a, b) => a.startIndex - b.startIndex)
+      if (runs.length === 0) continue
+      const run = runs[0]
+      emitSlots(timeline, run.startIndex, need, 'habit', {
+        habitId: habit.id, cognitiveClass: habit.cognitiveClass,
+        blockType: blockTypeFor(habit.cognitiveClass), label: habit.label,
+      }, blocks)
+      reasoning.push({ refId: habit.id, note: `Placed habit "${habit.label}" for ${need * SLOT_MINUTES}min` })
+      placed = true
+      break
+    }
+    if (!placed) lapsed.push(habit)
+  }
+
+  return { blocks, reasoning, lapsed }
+}
+
+// ── Pass 5: validate + generatePlan orchestration ──
+
+function skeletonBlockType(state: SlotState): string {
+  switch (state) {
+    case 'meal': return 'meal'
+    case 'fixed': return 'fixed'
+    case 'rest_lockout': return 'rest'
+    case 'habit': return 'habit'
+    default: return 'custom'
+  }
+}
+
+export function validatePlan(blocks: EngineBlock[], request: PlanRequest): PlanWarning[] {
+  const warnings: PlanWarning[] = []
+  const sorted = [...blocks].sort((a, b) => Date.parse(a.start) - Date.parse(b.start))
+  for (let i = 1; i < sorted.length; i++) {
+    if (Date.parse(sorted[i].start) < Date.parse(sorted[i - 1].end)) {
+      warnings.push({
+        kind: 'overcommitted',
+        message: `Blocks "${sorted[i - 1].label}" and "${sorted[i].label}" overlap`,
+      })
+    }
+  }
+  // Placed work crossing a skeleton lock (should never happen after placement).
+  for (const item of request.skeleton) {
+    const a = Date.parse(item.start), b = Date.parse(item.end)
+    for (const block of blocks) {
+      if (block.label === item.label) continue
+      const s = Date.parse(block.start), e = Date.parse(block.end)
+      if (s < b && e > a && (block.taskId || block.habitId)) {
+        warnings.push({
+          kind: 'overcommitted',
+          message: `Block "${block.label}" crosses fixed item "${item.label}"`,
+          refId: block.taskId ?? block.habitId ?? undefined,
+        })
+      }
+    }
+  }
+  return warnings
+}
+
+export function generatePlan(request: PlanRequest): PlanResult {
+  const timeline = buildTimeline(request.windowStart, request.windowEnd)
+  lockSkeleton(timeline, request.skeleton)
+
+  const freeMins = availableMinutes(timeline)
+  const budget = arbitrate(request, freeMins)
+
+  const mustTasks = request.tasks.filter((t) => t.mustToday)
+  const discretionaryTasks = request.tasks.filter((t) => !t.mustToday)
+
+  const mustResult = placeTasks(timeline, mustTasks, budget, request)
+  const habitResult = placeHabits(timeline, request)
+  const discResult = placeTasks(timeline, discretionaryTasks, budget, request)
+
+  const skeletonBlocks: EngineBlock[] = request.skeleton.map((item) => ({
+    taskId: null,
+    habitId: item.state === 'habit' ? item.id : null,
+    blockType: skeletonBlockType(item.state),
+    cognitiveClass: item.cognitiveClass ?? null,
+    start: item.start,
+    end: item.end,
+    label: item.label,
+  }))
+
+  const blocks = [
+    ...skeletonBlocks,
+    ...mustResult.blocks,
+    ...habitResult.blocks,
+    ...discResult.blocks,
+  ].sort((a, b) => Date.parse(a.start) - Date.parse(b.start))
+
+  const scheduledHoursByTask = { ...mustResult.scheduledHoursByTask, ...discResult.scheduledHoursByTask }
+  const reasoning = [...mustResult.reasoning, ...habitResult.reasoning, ...discResult.reasoning]
+
+  const warnings: PlanWarning[] = [...validatePlan(blocks, request)]
+
+  for (const task of request.tasks) {
+    if (task.isAtRisk) {
+      warnings.push({
+        kind: 'deadline_at_risk',
+        message: `"${task.label}" is at risk of missing its deadline`,
+        refId: task.id,
+      })
+    }
+  }
+
+  if (budget.capBreached) {
+    warnings.push({
+      kind: 'work_hour_cap_breached',
+      message: `Required work (${Math.round(budget.reservedMustMins / 60)}h) exceeds the work-hour cap of ${request.workHourCap}h`,
+    })
+  }
+
+  return {
+    blocks,
+    warnings,
+    reasoning,
+    capBreached: budget.capBreached,
+    dialUsed: request.workLifeDial,
+    scheduledHoursByTask,
+  }
 }
