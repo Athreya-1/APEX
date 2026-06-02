@@ -1,12 +1,18 @@
 'use client'
+import { useState } from 'react'
 import { format, isToday, isTomorrow, differenceInDays } from 'date-fns'
 import type { Task } from '@/types'
+import { formatEstimateHours } from '@/lib/tasks/estimate-stops'
+import { TriangulationControl } from './TriangulationControl'
+import type { TriangulationChoice } from '@/lib/tasks/triangulation'
 
 interface TaskRowProps {
   task: Task
   onComplete: (id: string) => void
   onSelect: (id: string) => void
   isSelected: boolean
+  onTriangulation?: (taskId: string, choice: TriangulationChoice) => void
+  onRequestEstimate?: (taskId: string) => void
 }
 
 function formatDueDate(dateStr: string | null | undefined): { label: string; urgency: 'urgent' | 'soon' | 'normal' } {
@@ -27,11 +33,14 @@ function getUrgencyColor(score: number): string {
   return 'var(--text3)'
 }
 
-export function TaskRow({ task, onComplete, onSelect, isSelected }: TaskRowProps) {
+export function TaskRow({ task, onComplete, onSelect, isSelected, onTriangulation, onRequestEstimate }: TaskRowProps) {
+  const [showTri, setShowTri] = useState(false)
   const isDone = task.status === 'done'
   const score = task.urgency_score
   const urgencyColor = getUrgencyColor(score)
   const { label: dueLabel, urgency } = formatDueDate(task.due_date)
+  const isCold = task.estimated_hours == null
+  const estHours = task.estimated_hours ?? task.ai_estimated_hours
 
   return (
     <div
@@ -43,6 +52,8 @@ export function TaskRow({ task, onComplete, onSelect, isSelected }: TaskRowProps
         opacity: isDone ? 0.4 : 1,
       }}
       onClick={() => !isDone && onSelect(task.id)}
+      onMouseEnter={() => setShowTri(true)}
+      onMouseLeave={() => setShowTri(false)}
     >
       {isSelected && (
         <div style={{
@@ -118,13 +129,33 @@ export function TaskRow({ task, onComplete, onSelect, isSelected }: TaskRowProps
             background: urgencyColor,
           }} />
         </div>
-        {task.estimated_hours != null && (
-          <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--text3)' }}>
-            ~{task.estimated_hours % 1 === 0
-              ? `${task.estimated_hours}h`
-              : `${Math.round(task.estimated_hours * 60)}m`}
-          </span>
-        )}
+        <div style={{ position: 'relative' }}>
+          {isCold ? (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onRequestEstimate?.(task.id) }}
+              style={{
+                fontSize: 9, fontFamily: 'var(--font-mono)', padding: '2px 8px',
+                borderRadius: 6, background: 'var(--bg4)', border: '1px solid var(--border2)',
+                color: 'var(--amber)', cursor: 'pointer',
+              }}
+            >
+              Estimate
+            </button>
+          ) : estHours != null && (
+            <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--text3)' }}>
+              ~{formatEstimateHours(estHours)}
+            </span>
+          )}
+          {showTri && !isCold && onTriangulation && (
+            <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 10 }}>
+              <TriangulationControl
+                multiplier={task.triangulation_multiplier ?? 1}
+                onChange={(c) => onTriangulation(task.id, c)}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

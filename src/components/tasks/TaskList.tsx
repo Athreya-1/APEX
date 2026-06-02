@@ -3,12 +3,15 @@ import { useMemo } from 'react'
 import { differenceInDays, isToday, parseISO } from 'date-fns'
 import { TaskRow } from './TaskRow'
 import type { Task } from '@/types'
+import type { TriangulationChoice } from '@/lib/tasks/triangulation'
 
 interface TaskListProps {
   tasks: Task[]
   onComplete: (id: string) => void
   onSelectTask: (id: string) => void
   selectedTaskId: string | null
+  onTriangulation?: (taskId: string, choice: TriangulationChoice) => void
+  onRequestEstimate?: (taskId: string) => void
 }
 
 interface TaskGroup {
@@ -47,7 +50,9 @@ function groupTasks(tasks: Task[]): TaskGroup[] {
   return groups
 }
 
-export function TaskList({ tasks, onComplete, onSelectTask, selectedTaskId }: TaskListProps) {
+export function TaskList({
+  tasks, onComplete, onSelectTask, selectedTaskId, onTriangulation, onRequestEstimate,
+}: TaskListProps) {
   const groups = useMemo(() => groupTasks(tasks), [tasks])
 
   if (!tasks.length) {
@@ -78,6 +83,8 @@ export function TaskList({ tasks, onComplete, onSelectTask, selectedTaskId }: Ta
               onComplete={onComplete}
               onSelect={onSelectTask}
               isSelected={selectedTaskId === task.id}
+              onTriangulation={onTriangulation}
+              onRequestEstimate={onRequestEstimate}
             />
           ))}
         </div>

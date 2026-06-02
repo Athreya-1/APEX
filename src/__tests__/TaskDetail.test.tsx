@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 
 jest.useFakeTimers()
 
@@ -49,13 +49,17 @@ describe('TaskDetail', () => {
     expect(mockOnComplete).toHaveBeenCalledWith('task-1')
   })
 
-  it('calls onUpdateField with debounce when estimate hours changes', async () => {
+  it('shows formatted auto estimate when set', async () => {
     const { TaskDetail } = await import('@/components/tasks/TaskDetail')
     render(<TaskDetail task={baseTask} onUpdateField={mockUpdateField} onComplete={mockOnComplete} onClose={mockOnClose} />)
-    const estInput = screen.getByLabelText('Estimated hours')
-    fireEvent.change(estInput, { target: { value: '5' } })
-    expect(mockUpdateField).not.toHaveBeenCalled()
-    act(() => jest.advanceTimersByTime(500))
-    await waitFor(() => expect(mockUpdateField).toHaveBeenCalledWith('task-1', 'estimated_hours', 5))
+    expect(screen.getByText(/4h/)).toBeInTheDocument()
+    expect(screen.getByText(/· auto/)).toBeInTheDocument()
+  })
+
+  it('prompts for first estimate when cold', async () => {
+    const { TaskDetail } = await import('@/components/tasks/TaskDetail')
+    const cold = { ...baseTask, estimated_hours: null }
+    render(<TaskDetail task={cold} onUpdateField={mockUpdateField} onComplete={mockOnComplete} onRequestEstimate={jest.fn()} />)
+    expect(screen.getByText(/Needs a first estimate/)).toBeInTheDocument()
   })
 })

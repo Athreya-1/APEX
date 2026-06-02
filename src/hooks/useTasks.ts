@@ -89,5 +89,32 @@ export function useTasks(userId: string | undefined) {
     [supabase, updateTask],
   )
 
-  return { completeTask, updateTaskField }
+  const setTriangulation = useCallback(
+    async (taskId: string, choice: 'shorter' | 'typical' | 'longer') => {
+      const task = useTaskStore.getState().tasks.find((t) => t.id === taskId)
+      if (!task) return
+      const res = await fetch('/api/tasks/estimate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_type_tag: task.task_type_tag,
+          course_id: task.course_id,
+          triangulation: choice,
+        }),
+      })
+      const data = await res.json()
+      const mult = choice === 'shorter' ? 0.6 : choice === 'longer' ? 1.5 : 1
+      await supabase.from('tasks').update({
+        triangulation_multiplier: mult,
+        estimated_hours: data.estimated_hours,
+      }).eq('id', taskId)
+      updateTask(taskId, {
+        triangulation_multiplier: mult,
+        estimated_hours: data.estimated_hours,
+      })
+    },
+    [supabase, updateTask],
+  )
+
+  return { completeTask, updateTaskField, setTriangulation }
 }

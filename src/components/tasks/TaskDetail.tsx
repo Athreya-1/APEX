@@ -1,12 +1,22 @@
 'use client'
-import { useCallback, useRef } from 'react'
-import type { Task, TaskTypeTag, EisenhowerQuadrant } from '@/types'
+import { useCallback, useRef, useState } from 'react'
+import type { Task, TaskTypeTag, EisenhowerQuadrant, TaskFieldDef, TaskFieldValue } from '@/types'
+import { formatEstimateHours } from '@/lib/tasks/estimate-stops'
+import { TriangulationControl } from './TriangulationControl'
+import { CustomFieldsSection } from './CustomFieldsSection'
+import type { TriangulationChoice } from '@/lib/tasks/triangulation'
 
 interface TaskDetailProps {
   task: Task
   onUpdateField: (taskId: string, field: keyof Task, value: unknown) => Promise<void>
   onComplete: (taskId: string) => void
   onClose?: () => void
+  onTriangulation?: (taskId: string, choice: TriangulationChoice) => void
+  onRequestEstimate?: () => void
+  fieldDefs?: TaskFieldDef[]
+  fieldValues?: TaskFieldValue[]
+  onSetFieldValue?: (fieldDefId: string, value: unknown) => Promise<void>
+  onAddFieldDef?: (name: string, kind: TaskFieldDef['kind'], options?: string[]) => Promise<void>
 }
 
 function useDebounce<T extends unknown[]>(fn: (...args: T) => void, delay: number) {
@@ -36,8 +46,14 @@ function getUrgencyColor(score: number): string {
   return 'var(--text3)'
 }
 
-export function TaskDetail({ task, onUpdateField, onComplete, onClose }: TaskDetailProps) {
+export function TaskDetail({
+  task, onUpdateField, onComplete, onClose,
+  onTriangulation, onRequestEstimate,
+  fieldDefs = [], fieldValues = [], onSetFieldValue, onAddFieldDef,
+}: TaskDetailProps) {
+  const [showTri, setShowTri] = useState(false)
   const urgencyColor = getUrgencyColor(task.urgency_score)
+  const isCold = task.estimated_hours == null
 
   const debouncedUpdate = useDebounce(
     (field: keyof Task, value: unknown) => onUpdateField(task.id, field, value),
@@ -168,18 +184,48 @@ export function TaskDetail({ task, onUpdateField, onComplete, onClose }: TaskDet
         />
       </div>
 
-      {/* Time estimate (debounced) */}
+      {/* Time estimate */}
       <div style={labelStyle}>Time estimate</div>
-      <input
-        type="number"
-        step="0.25"
-        min="0"
-        defaultValue={task.estimated_hours ?? ''}
-        onChange={(e) => debouncedUpdate('estimated_hours', parseFloat(e.target.value) || null)}
-        style={{ ...fieldStyle, width: 80 }}
-        aria-label="Estimated hours"
-        placeholder="h"
-      />
+      {isCold ? (
+        <button
+          type="button"
+          onClick={onRequestEstimate}
+          style={{
+            ...fieldStyle, textAlign: 'left', color: 'var(--amber)',
+            borderColor: 'rgba(245,166,35,.4)', cursor: 'pointer',
+          }}
+        >
+          Needs a first estimate →
+        </button>
+      ) : (
+        <div
+          style={{ position: 'relative', display: 'inline-block' }}
+          onMouseEnter={() => setShowTri(true)}
+          onMouseLeave={() => setShowTri(false)}
+        >
+          <div style={{ ...fieldStyle, width: 'auto', display: 'inline-block' }}>
+            {formatEstimateHours(task.estimated_hours ?? 0)}
+            <span style={{ color: 'var(--text3)', fontSize: 10, marginLeft: 6 }}>· auto</span>
+          </div>
+          {showTri && onTriangulation && (
+            <div style={{ position: 'absolute', left: 0, top: '100%', marginTop: 6, zIndex: 10 }}>
+              <TriangulationControl
+                multiplier={task.triangulation_multiplier ?? 1}
+                onChange={(c) => onTriangulation(task.id, c)}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {onSetFieldValue && onAddFieldDef && (
+        <CustomFieldsSection
+          fieldDefs={fieldDefs}
+          values={fieldValues}
+          onSetValue={onSetFieldValue}
+          onAddField={onAddFieldDef}
+        />
+      )}
 
       {/* Description (debounced) */}
       <div style={labelStyle}>Description</div>

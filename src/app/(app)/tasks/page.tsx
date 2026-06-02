@@ -3,10 +3,12 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useTaskStore } from '@/stores/taskStore'
 import { useTasks } from '@/hooks/useTasks'
+import { useTaskFields } from '@/hooks/useTaskFields'
 import { TaskList } from '@/components/tasks/TaskList'
 import { TaskDetail } from '@/components/tasks/TaskDetail'
 import { TaskFilters } from '@/components/tasks/TaskFilters'
-import { UniversalInput } from '@/components/input/UniversalInput'
+import { QuickAddBar } from '@/components/tasks/QuickAddBar'
+import { EstimateModal } from '@/components/tasks/EstimateModal'
 
 const STATIC_FILTERS = ['All', 'Today', 'Urgent']
 
@@ -15,10 +17,11 @@ export default function TasksPage() {
   const [userId, setUserId] = useState<string | undefined>()
   const [activeFilter, setActiveFilter] = useState('All')
   const [courses, setCourses] = useState<Array<{ id: string; name: string; color: string }>>([])
-  const [aiLoading, setAiLoading] = useState(false)
+  const [estimateTaskId, setEstimateTaskId] = useState<string | null>(null)
 
-  const { tasks, selectedTaskId, setSelectedTaskId } = useTaskStore()
-  const { completeTask, updateTaskField } = useTasks(userId)
+  const { tasks, selectedTaskId, setSelectedTaskId, addTask } = useTaskStore()
+  const { completeTask, updateTaskField, setTriangulation } = useTasks(userId)
+  const { fieldDefs, values, addFieldDef, setFieldValue } = useTaskFields(userId, selectedTaskId)
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -36,7 +39,7 @@ export default function TasksPage() {
       .then(({ data }) => { if (data) setCourses(data) })
   }, [userId])
 
-  const filterPills = [...STATIC_FILTERS, ...courses.map((c) => c.name), 'CMR', 'Startup']
+  const filterPills = [...STATIC_FILTERS, ...courses.map((c) => c.name)]
 
   const filteredTasks = tasks.filter((task) => {
     if (activeFilter === 'All') return task.status !== 'done'
@@ -49,36 +52,21 @@ export default function TasksPage() {
   })
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) ?? null
+  const estimateTask = tasks.find((t) => t.id === estimateTaskId) ?? null
 
-  const handleInputSubmit = useCallback(
-    async (input: string, _image?: File): Promise<void> => {
-      if (!userId) return
-      setAiLoading(true)
-      try {
-        await fetch('/api/ai', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            input,
-            context: {
-              user_name: 'Athreya',
-              courses: courses.map((c) => ({ id: c.id, name: c.name })),
-              notepads: [],
-              habits: [],
-              recent_tasks: tasks.slice(0, 5).map((t) => ({ task_name: t.task_name })),
-            },
-          }),
-        })
-      } finally {
-        setAiLoading(false)
-      }
-    },
-    [userId, courses, tasks],
-  )
+  const handleTaskCreated = useCallback((task: Parameters<typeof addTask>[0]) => {
+    addTask(task)
+    setSelectedTaskId(task.id)
+  }, [addTask, setSelectedTaskId])
+
+  const handleEstimateConfirm = useCallback(async (hours: number) => {
+    if (!estimateTaskId) return
+    await updateTaskField(estimateTaskId, 'estimated_hours', hours)
+    setEstimateTaskId(null)
+  }, [estimateTaskId, updateTaskField])
 
   return (
     <div style={{ display: 'flex', height: '100%', flexDirection: 'column' }}>
-      {/* Header */}
       <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-.02em' }}>Tasks</span>
@@ -89,41 +77,35 @@ export default function TasksPage() {
         <TaskFilters filters={filterPills} active={activeFilter} onSelect={setActiveFilter} />
       </div>
 
-      {/* Body */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Task list column */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
           <TaskList
             tasks={filteredTasks}
             onComplete={completeTask}
             onSelectTask={(id) => setSelectedTaskId(id === selectedTaskId ? null : id)}
             selectedTaskId={selectedTaskId}
+            onTriangulation={setTriangulation}
+            onRequestEstimate={setEstimateTaskId}
           />
-
-          {/* Universal input at bottom */}
           <div style={{
             padding: '8px 16px 14px',
             background: 'var(--bg)',
             flexShrink: 0,
             borderTop: '1px solid var(--border)',
           }}>
-            <UniversalInput
-              placeholder="Add a task, paste assignments, or ask about tasks…"
-              onSubmit={handleInputSubmit}
-              loading={aiLoading}
+            <QuickAddBar
+              knownCourses={courses.map((c) => c.name)}
+              onTaskCreated={handleTaskCreated}
             />
           </div>
         </div>
 
-        {/* Desktop detail panel */}
         {selectedTask && (
           <div
             className="hidden md:flex"
             style={{
-              width: 260,
-              borderLeft: '1px solid var(--border)',
-              flexShrink: 0,
-              flexDirection: 'column',
+              width: 280, borderLeft: '1px solid var(--border)',
+              flexShrink: 0, flexDirection: 'column',
             }}
           >
             <TaskDetail
@@ -131,39 +113,49 @@ export default function TasksPage() {
               onUpdateField={updateTaskField}
               onComplete={completeTask}
               onClose={() => setSelectedTaskId(null)}
+              onTriangulation={setTriangulation}
+              onRequestEstimate={() => setEstimateTaskId(selectedTask.id)}
+              fieldDefs={fieldDefs}
+              fieldValues={values}
+              onSetFieldValue={setFieldValue}
+              onAddFieldDef={addFieldDef}
             />
           </div>
         )}
       </div>
 
-      {/* Mobile task detail — slide up from bottom */}
       {selectedTask && (
         <div
           className="md:hidden"
           style={{
-            position: 'fixed',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            background: 'var(--bg2)',
-            borderTop: '1px solid var(--border)',
-            maxHeight: '65vh',
-            overflowY: 'auto',
-            zIndex: 20,
+            position: 'fixed', bottom: 0, left: 0, right: 0,
+            background: 'var(--bg2)', borderTop: '1px solid var(--border)',
+            maxHeight: '65vh', overflowY: 'auto', zIndex: 20,
             borderRadius: '16px 16px 0 0',
           }}
         >
-          <div style={{ padding: '8px 20px 4px', display: 'flex', justifyContent: 'center' }}>
-            <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border2)' }} />
-          </div>
           <TaskDetail
             task={selectedTask}
             onUpdateField={updateTaskField}
             onComplete={completeTask}
             onClose={() => setSelectedTaskId(null)}
+            onTriangulation={setTriangulation}
+            onRequestEstimate={() => setEstimateTaskId(selectedTask.id)}
+            fieldDefs={fieldDefs}
+            fieldValues={values}
+            onSetFieldValue={setFieldValue}
+            onAddFieldDef={addFieldDef}
           />
         </div>
       )}
+
+      <EstimateModal
+        open={estimateTaskId != null}
+        taskTitle={estimateTask?.task_name ?? ''}
+        suggestedHours={estimateTask?.ai_estimated_hours ?? undefined}
+        onCancel={() => setEstimateTaskId(null)}
+        onConfirm={handleEstimateConfirm}
+      />
     </div>
   )
 }
