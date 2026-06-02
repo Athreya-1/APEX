@@ -164,9 +164,9 @@ V2 chained/blocking tasks; learned energy-curve & burnout prediction; habit-devi
 
 - [x] Branch `feat/apex-v1-planner` created; in-progress work checkpointed; baseline tests captured (93/4).
 - [x] Plan 01 — Foundation (migration + V1 types + surface reduction + proxy verified as Next 16 middleware + login test fixed). Suite: 103/0.
-- [ ] Plan 02 — Effort/estimation
-- [ ] Plan 03 — Urgency model
-- [ ] Plan 04 — Scheduling engine
+- [x] Plan 02 — Effort/estimation (`estimation.ts`: EWMA summary, shrinkage blend, velocity, `computePaddedEffort`). Suite: 117/0.
+- [x] Plan 03 — Urgency model (`urgency.ts` += EDF feasibility/slack/at-risk + continuous score + `orderByUrgency`). Suite: 124/0.
+- [ ] Plan 04 — Scheduling engine (the crown jewel; next)
 - [ ] Plan 05 — Eisenhower/WLB/guardrails
 - [ ] Plan 06 — LLM layer & routing
 - [ ] Plan 07 — Generate/replan/GCal
