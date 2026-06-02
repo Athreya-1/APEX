@@ -168,7 +168,8 @@ V2 chained/blocking tasks; learned energy-curve & burnout prediction; habit-devi
 - [x] Plan 03 — Urgency model (`urgency.ts` += EDF feasibility/slack/at-risk + continuous score + `orderByUrgency`). Suite: 124/0.
 - [x] Plan 04 — Scheduling engine (`timeline.ts` + `engine.ts`: 15-min timeline, session chunking, 5 passes, energy-matched placement, validate/repair, `generatePlan`). Suite: 144/0.
 - [x] Plan 05 — Eisenhower/WLB/guardrails (`eisenhower.ts`: importance/quadrant/cut-order; `guardrails.ts`: guardrail→skeleton. WLB dial + cap already in `engine.ts`). Suite: 159/0.
-- [ ] Plan 06 — LLM layer & model routing (next)
+- [x] Plan 06 — LLM layer & model routing (`src/lib/llm/`: models, zod schemas, JSON extraction, offline quick-add parser, injectable caller, parse/decompose/explain/replan). Added `zod`. Suite: 180/0.
+- [ ] Plan 07 — generate/replan API orchestration + GCal (next)
 - [ ] Plan 06 — LLM layer & routing
 - [ ] Plan 07 — Generate/replan/GCal
 - [ ] Plan 08 — To-Do custom fields & input
