@@ -70,3 +70,25 @@ export function freeRuns(timeline: TimelineSlot[]): FreeRun[] {
 }
 
 export function runMinutes(run: FreeRun): number { return run.slotCount * SLOT_MINUTES }
+
+export type SessionMode = '90_20' | '50_10'
+export interface SessionSegment { kind: 'focus' | 'break'; minutes: number }
+
+export function planSessions(totalMinutes: number, mode: SessionMode, minChunkMinutes: number): SessionSegment[] {
+  if (totalMinutes <= 0) return []
+  const [F, B] = mode === '90_20' ? [90, 20] : [50, 10]
+  if (totalMinutes <= F) return [{ kind: 'focus', minutes: totalMinutes }]
+
+  const fullCount = Math.floor(totalMinutes / F)
+  const remainder = totalMinutes - fullCount * F
+  const focuses: number[] = Array(fullCount).fill(F)
+  if (remainder >= minChunkMinutes) focuses.push(remainder)
+  else if (remainder > 0) focuses[focuses.length - 1] += remainder
+
+  const segs: SessionSegment[] = []
+  focuses.forEach((f, i) => {
+    if (i > 0) segs.push({ kind: 'break', minutes: B })
+    segs.push({ kind: 'focus', minutes: f })
+  })
+  return segs
+}

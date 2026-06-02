@@ -1,4 +1,4 @@
-import { buildTimeline, slotIndexAt, lockRange, freeRuns, SLOT_MINUTES } from '@/lib/planning/timeline'
+import { buildTimeline, slotIndexAt, lockRange, freeRuns, SLOT_MINUTES, planSessions } from '@/lib/planning/timeline'
 
 const S = '2026-06-01T08:00:00.000Z'
 const E = '2026-06-01T20:00:00.000Z' // 12h -> 48 slots
@@ -40,5 +40,35 @@ describe('lockRange + freeRuns', () => {
     expect(slotIndexAt(t, '2026-06-01T08:07:00.000Z')).toBe(0)
     expect(slotIndexAt(t, '2026-06-01T09:00:00.000Z')).toBe(4)
     expect(slotIndexAt(t, '2026-06-01T21:00:00.000Z')).toBe(-1)
+  })
+})
+
+describe('planSessions', () => {
+  it('90/20: 210 min -> f90,b20,f90,b20,f30 (remainder >= minChunk)', () => {
+    expect(planSessions(210, '90_20', 30)).toEqual([
+      { kind: 'focus', minutes: 90 }, { kind: 'break', minutes: 20 },
+      { kind: 'focus', minutes: 90 }, { kind: 'break', minutes: 20 },
+      { kind: 'focus', minutes: 30 },
+    ])
+  })
+  it('absorbs a sub-min-chunk remainder into the last focus', () => {
+    // 200 min, F=90, remainder 20 (<30) -> f90,b20,f110
+    expect(planSessions(200, '90_20', 30)).toEqual([
+      { kind: 'focus', minutes: 90 }, { kind: 'break', minutes: 20 },
+      { kind: 'focus', minutes: 110 },
+    ])
+  })
+  it('single short session has no trailing break', () => {
+    expect(planSessions(60, '90_20', 30)).toEqual([{ kind: 'focus', minutes: 60 }])
+  })
+  it('50/10 splits correctly', () => {
+    // 110 mod 50 = 10 < minChunk 25 -> remainder absorbed into last full focus -> f50,b10,f60
+    expect(planSessions(110, '50_10', 25)).toEqual([
+      { kind: 'focus', minutes: 50 }, { kind: 'break', minutes: 10 },
+      { kind: 'focus', minutes: 60 },
+    ])
+  })
+  it('zero or negative -> empty', () => {
+    expect(planSessions(0, '90_20', 30)).toEqual([])
   })
 })
