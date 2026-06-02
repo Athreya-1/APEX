@@ -166,8 +166,8 @@ V2 chained/blocking tasks; learned energy-curve & burnout prediction; habit-devi
 - [x] Plan 01 — Foundation (migration + V1 types + surface reduction + proxy verified as Next 16 middleware + login test fixed). Suite: 103/0.
 - [x] Plan 02 — Effort/estimation (`estimation.ts`: EWMA summary, shrinkage blend, velocity, `computePaddedEffort`). Suite: 117/0.
 - [x] Plan 03 — Urgency model (`urgency.ts` += EDF feasibility/slack/at-risk + continuous score + `orderByUrgency`). Suite: 124/0.
-- [ ] Plan 04 — Scheduling engine (the crown jewel; next)
-- [ ] Plan 05 — Eisenhower/WLB/guardrails
+- [x] Plan 04 — Scheduling engine (`timeline.ts` + `engine.ts`: 15-min timeline, session chunking, 5 passes, energy-matched placement, validate/repair, `generatePlan`). Suite: 144/0.
+- [ ] Plan 05 — Eisenhower/WLB/guardrails (next)
 - [ ] Plan 06 — LLM layer & routing
 - [ ] Plan 07 — Generate/replan/GCal
 - [ ] Plan 08 — To-Do custom fields & input
