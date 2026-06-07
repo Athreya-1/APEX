@@ -36,6 +36,7 @@ async function syncBlocksToGCal(
   token: string,
   refresh: string | null,
   supabase: Awaited<ReturnType<typeof createClient>>,
+  onTokenRefresh?: (newToken: string, newRefresh: string | null) => Promise<void>,
 ) {
   const diff = diffGCalBlocks(
     blocks.map((b) => ({
@@ -52,9 +53,9 @@ async function syncBlocksToGCal(
       start_time: block.start_time,
       end_time: block.end_time,
       block_type: block.block_type,
-    }),
-    update: (gcalId, block) => updateGCalEvent(token, refresh, gcalId, block),
-    remove: (gcalId) => deleteGCalEvent(token, refresh, gcalId),
+    }, onTokenRefresh),
+    update: (gcalId, block) => updateGCalEvent(token, refresh, gcalId, block, onTokenRefresh),
+    remove: (gcalId) => deleteGCalEvent(token, refresh, gcalId, onTokenRefresh),
   })
   for (const [blockId, gcalId] of Object.entries(created)) {
     await supabase.from('plan_blocks').update({ gcal_event_id: gcalId }).eq('id', blockId)
@@ -63,8 +64,29 @@ async function syncBlocksToGCal(
 
 export async function POST(request: Request) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+
+  // Normal session-cookie auth
+  let { data: { user } } = await supabase.auth.getUser()
+
+  // Fallback: server-side AI router calls this with x-user-id + x-service-key
+  // (no session cookie available in that context)
+  if (!user) {
+    const serviceKey = request.headers.get('x-service-key')
+    const xUserId = request.headers.get('x-user-id')
+    if (serviceKey && xUserId && serviceKey === process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      // Trust the user-id provided by our own server-side router
+      user = { id: xUserId } as NonNullable<typeof user>
+    }
+  }
+
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const tokenRefresh = async (newToken: string, newRefresh: string | null) => {
+    await supabase.from('users').update({
+      google_calendar_token: newToken,
+      ...(newRefresh ? { google_calendar_refresh_token: newRefresh } : {}),
+    }).eq('id', user!.id)
+  }
 
   const body: ReplanBody = await request.json()
   const { plan_date, block_id, extra_mins, from_time, instruction } = body
@@ -119,6 +141,7 @@ export async function POST(request: Request) {
         userData.google_calendar_token,
         userData.google_calendar_refresh_token ?? null,
         plan_date,
+        tokenRefresh,
       )
       await syncBlocksToGCal(
         allBlocks as PlanBlock[],
@@ -126,6 +149,7 @@ export async function POST(request: Request) {
         userData.google_calendar_token,
         userData.google_calendar_refresh_token ?? null,
         supabase,
+        tokenRefresh,
       )
     }
 
@@ -180,6 +204,7 @@ export async function POST(request: Request) {
         userData.google_calendar_token,
         userData.google_calendar_refresh_token ?? null,
         plan_date,
+        tokenRefresh,
       )
     } catch { /* ok */ }
   }
@@ -216,6 +241,7 @@ export async function POST(request: Request) {
         userData.google_calendar_token,
         userData.google_calendar_refresh_token ?? null,
         b.gcal_event_id,
+        tokenRefresh,
       )
     }
     await supabase.from('plan_blocks').delete().eq('id', b.id)
@@ -250,6 +276,7 @@ export async function POST(request: Request) {
       userData.google_calendar_token,
       userData.google_calendar_refresh_token ?? null,
       supabase,
+      tokenRefresh,
     )
   }
 

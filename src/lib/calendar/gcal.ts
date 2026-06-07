@@ -9,7 +9,11 @@ export interface GCalEvent {
   apex_block_id?: string
 }
 
-function getOAuthClient(accessToken: string, refreshToken?: string) {
+function getOAuthClient(
+  accessToken: string,
+  refreshToken?: string,
+  onTokenRefresh?: (newToken: string, newRefresh: string | null) => Promise<void>,
+) {
   const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
@@ -19,6 +23,13 @@ function getOAuthClient(accessToken: string, refreshToken?: string) {
     access_token: accessToken,
     refresh_token: refreshToken,
   })
+  if (onTokenRefresh) {
+    oauth2Client.on('tokens', (tokens) => {
+      if (tokens.access_token) {
+        onTokenRefresh(tokens.access_token, tokens.refresh_token ?? null).catch(console.error)
+      }
+    })
+  }
   return oauth2Client
 }
 
@@ -30,9 +41,10 @@ export async function getEventsForDate(
   accessToken: string,
   refreshToken: string | null,
   date: string, // YYYY-MM-DD
+  onTokenRefresh?: (newToken: string, newRefresh: string | null) => Promise<void>,
 ): Promise<GCalEvent[]> {
   try {
-    const auth = getOAuthClient(accessToken, refreshToken ?? undefined)
+    const auth = getOAuthClient(accessToken, refreshToken ?? undefined, onTokenRefresh)
     const calendar = google.calendar({ version: 'v3', auth })
 
     const startOfDay = new Date(`${date}T00:00:00`)
@@ -76,9 +88,10 @@ export async function createGCalEvent(
     end_time: string
     block_type: string
   },
+  onTokenRefresh?: (newToken: string, newRefresh: string | null) => Promise<void>,
 ): Promise<string | null> {
   try {
-    const auth = getOAuthClient(accessToken, refreshToken ?? undefined)
+    const auth = getOAuthClient(accessToken, refreshToken ?? undefined, onTokenRefresh)
     const calendar = google.calendar({ version: 'v3', auth })
 
     // Color mapping (GCal colorId 1-11)
@@ -129,9 +142,10 @@ export async function updateGCalEvent(
     end_time: string
     block_type: string
   },
+  onTokenRefresh?: (newToken: string, newRefresh: string | null) => Promise<void>,
 ): Promise<void> {
   try {
-    const auth = getOAuthClient(accessToken, refreshToken ?? undefined)
+    const auth = getOAuthClient(accessToken, refreshToken ?? undefined, onTokenRefresh)
     const calendar = google.calendar({ version: 'v3', auth })
     const colorMap: Record<string, string> = {
       deep_work: '5', entrepreneur: '5', class: '1', meal: '2', cmr: '4', gym: '3', break: '8', routine: '8', sleep: '8',
@@ -159,9 +173,10 @@ export async function deleteGCalEvent(
   accessToken: string,
   refreshToken: string | null,
   gcalEventId: string,
+  onTokenRefresh?: (newToken: string, newRefresh: string | null) => Promise<void>,
 ): Promise<void> {
   try {
-    const auth = getOAuthClient(accessToken, refreshToken ?? undefined)
+    const auth = getOAuthClient(accessToken, refreshToken ?? undefined, onTokenRefresh)
     const calendar = google.calendar({ version: 'v3', auth })
     await calendar.events.delete({ calendarId: 'primary', eventId: gcalEventId })
   } catch (error) {

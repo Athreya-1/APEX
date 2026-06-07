@@ -50,6 +50,10 @@ export interface User {
 export interface UserPreferences {
   id: string
   user_id: string
+  wake_time_default?: string | null // HH:MM default wake time
+  sleep_time_default?: string | null // HH:MM default sleep time
+  peak_start?: string | null // HH:MM peak cognitive window start
+  peak_end?: string | null // HH:MM peak cognitive window end
   gym_duration_cascade: number[] // [90, 60, 30]
   lunch_window_start: string
   lunch_window_end: string
@@ -222,8 +226,8 @@ export interface Habit {
   id: string
   user_id: string
   name: string
-  icon: string
-  color: string
+  icon: string | null
+  color: string | null
   target_frequency: HabitFrequency
   target_days: number[] | null
   is_active: boolean

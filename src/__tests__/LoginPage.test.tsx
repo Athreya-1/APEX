@@ -29,7 +29,8 @@ describe('LoginPage', () => {
   it('renders the APEX wordmark', async () => {
     const { default: LoginPage } = await import('@/app/(auth)/login/page')
     render(<LoginPage />)
-    expect(screen.getByText('APEX')).toBeInTheDocument()
+    // The wordmark is split across <span>A</span>PEX — match by full text content
+    expect(screen.getByText((_, el) => el?.textContent === 'APEX')).toBeInTheDocument()
   })
 
   it('renders the tagline', async () => {

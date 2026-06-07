@@ -1,5 +1,6 @@
 'use client'
 
+import { Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
@@ -8,7 +9,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   no_code: 'Sign-in was cancelled or the link was invalid. Please try again.',
 }
 
-export default function LoginPage() {
+function LoginContent() {
   const supabase = createClient()
   const searchParams = useSearchParams()
   const errorKey = searchParams.get('error')
@@ -33,10 +34,10 @@ export default function LoginPage() {
           <div
             style={{
               padding: '10px 16px',
-              background: 'var(--red-bg, #2a1414)',
-              border: '1px solid var(--red, #f87171)',
+              background: 'rgba(240,106,106,.1)',
+              border: '1px solid rgba(240,106,106,.5)',
               borderRadius: 8,
-              color: 'var(--red, #f87171)',
+              color: '#f5b4b4',
               fontFamily: 'var(--font-mono)',
               fontSize: 12,
               maxWidth: 320,
@@ -46,16 +47,29 @@ export default function LoginPage() {
             {errorMsg}
           </div>
         )}
+
         <div className="text-center">
           <h1
-            className="text-5xl font-head font-bold tracking-tight"
-            style={{ color: 'var(--amber)' }}
+            style={{
+              fontSize: 52,
+              fontWeight: 900,
+              letterSpacing: '-2.5px',
+              color: 'var(--text)',
+              lineHeight: 1,
+              fontFamily: 'var(--font-head)',
+            }}
           >
-            APEX
+            <span style={{ color: 'var(--amber)' }}>A</span>PEX
           </h1>
           <p
-            className="mt-2 text-sm font-mono"
-            style={{ color: 'var(--text2)' }}
+            style={{
+              marginTop: 8,
+              fontSize: 11,
+              fontFamily: 'var(--font-mono)',
+              color: 'var(--text3)',
+              letterSpacing: '.12em',
+              textTransform: 'uppercase',
+            }}
           >
             pathway to the peak
           </p>
@@ -63,41 +77,62 @@ export default function LoginPage() {
 
         <button
           onClick={handleGoogleSignIn}
-          className="flex items-center gap-3 px-6 py-3 text-sm font-head transition-opacity hover:opacity-80"
           style={{
-            background: 'var(--bg3)',
-            border: '1px solid var(--border2)',
-            borderRadius: 'var(--radius-pill)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            padding: '13px 24px',
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 14,
             color: 'var(--text)',
+            fontFamily: 'var(--font-head)',
+            fontWeight: 700,
+            fontSize: 15,
+            cursor: 'pointer',
+            transition: 'all .2s var(--ease-out)',
           }}
+          onMouseOver={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-1px)'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border-lit)' }}
+          onMouseOut={e => { (e.currentTarget as HTMLButtonElement).style.transform = ''; (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border)' }}
         >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 18 18"
-            fill="none"
-            aria-hidden="true"
-          >
-            <path
-              d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615Z"
-              fill="#4285F4"
-            />
-            <path
-              d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18Z"
-              fill="#34A853"
-            />
-            <path
-              d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332Z"
-              fill="#FBBC05"
-            />
-            <path
-              d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58Z"
-              fill="#EA4335"
-            />
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+            <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615Z" fill="#4285F4" />
+            <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18Z" fill="#34A853" />
+            <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332Z" fill="#FBBC05" />
+            <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58Z" fill="#EA4335" />
           </svg>
           Continue with Google
         </button>
       </div>
     </div>
+  )
+}
+
+function LoginFallback() {
+  return (
+    <div
+      className="min-h-screen flex items-center justify-center"
+      style={{ background: 'var(--bg)' }}
+    >
+      <h1
+        style={{
+          fontSize: 52,
+          fontWeight: 900,
+          letterSpacing: '-2.5px',
+          color: 'var(--text)',
+          fontFamily: 'var(--font-head)',
+        }}
+      >
+        <span style={{ color: 'var(--amber)' }}>A</span>PEX
+      </h1>
+    </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginFallback />}>
+      <LoginContent />
+    </Suspense>
   )
 }

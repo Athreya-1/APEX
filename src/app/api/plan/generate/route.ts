@@ -63,11 +63,21 @@ export async function POST(request: Request) {
     return Response.json({ error: 'User preferences not found' }, { status: 400 })
   }
 
+  const tokenRefresh = async (newToken: string, newRefresh: string | null) => {
+    await supabase.from('users').update({
+      google_calendar_token: newToken,
+      ...(newRefresh ? { google_calendar_refresh_token: newRefresh } : {}),
+    }).eq('id', user.id)
+  }
+
   const courseById = new Map((courses ?? []).map((c: Course) => [c.id, c]))
   const paddedTasks = (tasks ?? []).map((t: Task) => taskToPadded(t, t.course_id ? courseById.get(t.course_id) : undefined))
 
-  const sleepDate = new Date(sleep_time)
-  const wakeDate = new Date(sleepDate.getTime() + (prefs.sleep_buffer_hours ?? 8.5) * 3_600_000)
+  const prefWake = prefs.wake_time_default ?? '07:30'
+  const [wh, wm] = prefWake.split(':').map(Number)
+  const planDay = new Date(plan_date + 'T00:00:00')
+  const wakeDate = new Date(planDay)
+  wakeDate.setHours(wh, wm, 0, 0)
   const windowStart = wakeDate.toISOString()
   const windowEnd = sleep_time
 
@@ -83,6 +93,7 @@ export async function POST(request: Request) {
         userData.google_calendar_token,
         userData.google_calendar_refresh_token ?? null,
         plan_date,
+        tokenRefresh,
       )
     } catch { /* continue without GCal */ }
   }
@@ -182,9 +193,9 @@ export async function POST(request: Request) {
         start_time: block.start_time,
         end_time: block.end_time,
         block_type: block.block_type,
-      }),
-      update: (gcalId, block) => updateGCalEvent(token, refresh, gcalId, block),
-      remove: (gcalId) => deleteGCalEvent(token, refresh, gcalId),
+      }, tokenRefresh),
+      update: (gcalId, block) => updateGCalEvent(token, refresh, gcalId, block, tokenRefresh),
+      remove: (gcalId) => deleteGCalEvent(token, refresh, gcalId, tokenRefresh),
     })
     for (const [blockId, gcalId] of Object.entries(created)) {
       await supabase.from('plan_blocks').update({ gcal_event_id: gcalId }).eq('id', blockId)

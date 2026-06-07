@@ -28,16 +28,17 @@ describe('PlanBlock', () => {
     expect(screen.getByText('Lab 4 — Cache Simulator')).toBeInTheDocument()
   })
 
-  it('shows NOW badge when current', async () => {
+  it('shows now badge when current', async () => {
     const { PlanBlock } = await import('@/components/plan/PlanBlock')
     render(<PlanBlock block={mockBlock} isCurrent={true} />)
-    expect(screen.getByText('NOW')).toBeInTheDocument()
+    expect(screen.getByText(/now/i)).toBeInTheDocument()
   })
 
-  it('shows DEEP badge for deep_work blocks', async () => {
+  it('does not show a badge for non-current deep_work blocks', async () => {
     const { PlanBlock } = await import('@/components/plan/PlanBlock')
     render(<PlanBlock block={mockBlock} isCurrent={false} />)
-    expect(screen.getByText('DEEP')).toBeInTheDocument()
+    // New design uses a chevron arrow for task-linked blocks, no text badge
+    expect(screen.queryByText('DEEP')).not.toBeInTheDocument()
   })
 })
 

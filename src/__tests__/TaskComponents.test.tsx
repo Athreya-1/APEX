@@ -2,7 +2,6 @@ import { render, screen, fireEvent } from '@testing-library/react'
 
 jest.mock('next/navigation', () => ({ usePathname: () => '/tasks' }))
 
-// ── TaskFilters tests ──
 describe('TaskFilters', () => {
   const filters = ['All', '15-213', 'CMR', 'Urgent']
 
@@ -27,7 +26,6 @@ describe('TaskFilters', () => {
   })
 })
 
-// ── TaskRow tests ──
 describe('TaskRow', () => {
   const task = {
     id: 'task-1',
@@ -52,7 +50,7 @@ describe('TaskRow', () => {
 
   it('renders urgency bar', async () => {
     const { TaskRow } = await import('@/components/tasks/TaskRow')
-    render(<TaskRow task={task} onComplete={jest.fn()} onSelect={jest.fn()} isSelected={false} />)
+    render(<TaskRow task={task} onComplete={jest.fn()} onSelect={jest.fn()} isSelected={true} />)
     expect(screen.getByRole('progressbar')).toBeInTheDocument()
   })
 
@@ -73,37 +71,75 @@ describe('TaskRow', () => {
   })
 })
 
-// ── TaskList tests ──
 describe('TaskList', () => {
   const tasks = [
     {
-      id: '1', task_name: 'Urgent Task', status: 'pending' as const, urgency_score: 0.8,
-      due_date: new Date(Date.now() + 1000000).toISOString(), do_date: null,
-      topic: '15-213', task_type_tag: 'lab', estimated_hours: 3, user_id: 'u',
+      id: '1',
+      task_name: 'Urgent Task',
+      status: 'pending' as const,
+      urgency_score: 0.8,
+      due_date: new Date(Date.now() + 1000000).toISOString(),
+      do_date: null,
+      topic: '15-213',
+      task_type_tag: 'lab',
+      estimated_hours: 3,
+      user_id: 'u',
       description: null,
     } as any,
     {
-      id: '2', task_name: 'Done Task', status: 'done' as const, urgency_score: 0,
-      due_date: null, do_date: null, topic: 'CMR', task_type_tag: 'other',
-      estimated_hours: 1, user_id: 'u', description: null,
+      id: '2',
+      task_name: 'Done Task',
+      status: 'done' as const,
+      urgency_score: 0,
+      due_date: null,
+      do_date: null,
+      topic: 'CMR',
+      task_type_tag: 'other',
+      estimated_hours: 1,
+      user_id: 'u',
+      description: null,
     } as any,
   ]
 
   it('renders urgent group label', async () => {
     const { TaskList } = await import('@/components/tasks/TaskList')
-    render(<TaskList tasks={tasks} onComplete={jest.fn()} onSelectTask={jest.fn()} selectedTaskId={null} />)
+    render(
+      <TaskList
+        tasks={tasks}
+        openTaskId={null}
+        onToggleTask={jest.fn()}
+        onComplete={jest.fn()}
+        onUpdateField={jest.fn()}
+      />,
+    )
     expect(screen.getAllByText(/urgent/i).length).toBeGreaterThan(0)
   })
 
   it('renders completed group label', async () => {
     const { TaskList } = await import('@/components/tasks/TaskList')
-    render(<TaskList tasks={tasks} onComplete={jest.fn()} onSelectTask={jest.fn()} selectedTaskId={null} />)
+    render(
+      <TaskList
+        tasks={tasks}
+        openTaskId={null}
+        onToggleTask={jest.fn()}
+        onComplete={jest.fn()}
+        onUpdateField={jest.fn()}
+      />,
+    )
     expect(screen.getByText(/completed/i)).toBeInTheDocument()
   })
 
   it('renders all task names', async () => {
     const { TaskList } = await import('@/components/tasks/TaskList')
-    render(<TaskList tasks={tasks} onComplete={jest.fn()} onSelectTask={jest.fn()} selectedTaskId={null} />)
+    render(
+      <TaskList
+        tasks={tasks}
+        openTaskId={null}
+        onToggleTask={jest.fn()}
+        onComplete={jest.fn()}
+        onUpdateField={jest.fn()}
+      />,
+    )
     expect(screen.getByText('Urgent Task')).toBeInTheDocument()
     expect(screen.getByText('Done Task')).toBeInTheDocument()
   })

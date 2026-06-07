@@ -19,6 +19,7 @@ const prefs: UserPreferences = {
   entrepreneur_daily_hours: 0, cmr_daily_hours: 0, class_pre_buffer_mins: 0, class_post_buffer_mins: 0,
   auto_plan_fallback_time: '22:00', checkin_enabled: true, urgency_flip_warning_hours: 24,
   work_life_dial: 0.5, daily_work_hour_cap: 8, min_chunk_minutes: 60, max_consecutive_heavy: 4,
+  peak_start: '09:00', peak_end: '12:00',
 }
 
 const task = (over: Partial<Task>): Task => ({
@@ -66,6 +67,8 @@ describe('orchestrator', () => {
     expect(req.skeleton.some((s) => s.label === 'Lunch')).toBe(true)
     expect(req.tasks[0].mustToday).toBe(true)
     expect(req.workLifeDial).toBe(0.5)
+    expect(req.energyWindow.peakStartMins).toBe(60)
+    expect(req.energyWindow.peakEndMins).toBe(240)
   })
 
   it('isHabitDueToday respects per_week target', () => {

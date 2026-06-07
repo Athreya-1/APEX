@@ -1,7 +1,8 @@
 @import "tailwindcss";
+@import "./apex-ui.css";
 
 @theme {
-  --font-family-head: 'Syne', sans-serif;
+  --font-family-head: 'Satoshi', sans-serif;
   --font-family-mono: 'DM Mono', monospace;
   --color-bg: #0c0c0b;
   --color-bg2: #131312;
@@ -21,34 +22,6 @@
   --radius-pill: 22px;
 }
 
-:root {
-  --bg: #0c0c0b;
-  --bg2: #131312;
-  --bg3: #1c1c1a;
-  --bg4: #222220;
-  --bg5: #2a2a27;
-  --border: #252523;
-  --border2: #2f2f2c;
-  --border3: #3a3a36;
-  --text: #eae8e1;
-  --text2: #7a786f;
-  --text3: #3f3f3b;
-  --amber: #f5a623;
-  --amber-dim: #7a5210;
-  --amber-bg: #171208;
-  --green: #3fcf72;
-  --blue: #5b9cf6;
-  --pink: #e879a8;
-  --red: #f06a6a;
-  --purple: #9d7ef0;
-  --font-head: 'Syne', sans-serif;
-  --font-mono: 'DM Mono', monospace;
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-pill: 22px;
-}
-
 *,
 *::before,
 *::after {
@@ -60,4 +33,11 @@ body {
   color: var(--text);
   font-family: var(--font-head);
   -webkit-font-smoothing: antialiased;
+  margin: 0;
+}
+
+select.fv,
+textarea.fv {
+  font-family: inherit;
+  resize: vertical;
 }

@@ -73,6 +73,16 @@ jest.mock('@/lib/supabase/server', () => ({
 }))
 
 describe('POST /api/ai', () => {
+  const originalApiKey = process.env.ANTHROPIC_API_KEY
+
+  beforeEach(() => {
+    process.env.ANTHROPIC_API_KEY = 'test-key'
+  })
+
+  afterAll(() => {
+    process.env.ANTHROPIC_API_KEY = originalApiKey
+  })
+
   it('returns 401 when not authenticated', async () => {
     const { createClient } = require('@/lib/supabase/server')
     ;(createClient as jest.Mock).mockResolvedValueOnce({

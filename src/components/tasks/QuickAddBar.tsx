@@ -1,4 +1,5 @@
 'use client'
+
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { parseQuickAddLocal } from '@/lib/llm/quickAddLocal'
 import type { QuickAddResult } from '@/lib/llm/schemas'
@@ -30,17 +31,25 @@ export function QuickAddBar({ knownCourses, onTaskCreated }: QuickAddBarProps) {
   const [pendingEst, setPendingEst] = useState<PendingEstimate | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const runLocalPreview = useCallback((text: string) => {
-    if (!text.trim()) { setPreview(null); return }
-    const now = new Date().toISOString()
-    setPreview(parseQuickAddLocal(text, { now, knownCourses }))
-  }, [knownCourses])
+  const runLocalPreview = useCallback(
+    (text: string) => {
+      if (!text.trim()) {
+        setPreview(null)
+        return
+      }
+      const now = new Date().toISOString()
+      setPreview(parseQuickAddLocal(text, { now, knownCourses }))
+    },
+    [knownCourses],
+  )
 
   useEffect(() => {
     if (clarifyActive) return
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => runLocalPreview(value), 200)
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
   }, [value, clarifyActive, runLocalPreview])
 
   async function submitToApi(text: string, extra?: { estimate_hours?: number; clarify?: Record<string, string> }) {
@@ -100,60 +109,69 @@ export function QuickAddBar({ knownCourses, onTaskCreated }: QuickAddBarProps) {
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
     if (e.key === 'Escape' && clarifyActive) {
       setClarifyActive(false)
       setMessages([])
     }
   }
 
+  function cancelClarify() {
+    setClarifyActive(false)
+    setMessages([])
+  }
+
   const courseChips = knownCourses.slice(0, 6)
 
   return (
-    <div style={{ position: 'relative' }}>
+    <>
       <ClarifyOverlay
         active={clarifyActive}
         messages={messages}
         chips={clarifyActive ? courseChips : undefined}
-        onChip={(c) => { setValue(c); handleSend() }}
+        onChip={(c) => {
+          setValue(c)
+          handleSend()
+        }}
+        onCancel={cancelClarify}
       />
-      <QuickAddPreview result={clarifyActive ? null : preview} />
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 6,
-        background: 'var(--bg3)', border: '1px solid var(--border2)',
-        borderRadius: 22, padding: '7px 7px 7px 16px',
-      }}>
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={clarifyActive ? 'Reply…' : 'Add a task — e.g. 15-213 lab 3 /213 4h due thursday'}
-          disabled={loading}
-          style={{
-            flex: 1, background: 'none', border: 'none', outline: 'none',
-            fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text)', minWidth: 0,
-          }}
-        />
-        <button
-          type="button"
-          aria-label="Send"
-          onClick={handleSend}
-          disabled={loading || !value.trim()}
-          style={{
-            width: 32, height: 32, borderRadius: '50%',
-            background: 'var(--amber)', border: 'none',
-            opacity: loading || !value.trim() ? 0.5 : 1,
-            cursor: loading || !value.trim() ? 'not-allowed' : 'pointer',
-            flexShrink: 0,
-          }}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.2">
-            <line x1="12" y1="19" x2="12" y2="5" />
-            <polyline points="5 12 12 5 19 12" />
+
+      <div className="todo-inputbar">
+        <QuickAddPreview result={clarifyActive ? null : preview} />
+        <div className="todo-pill">
+          <svg className="ic" viewBox="0 0 24 24" aria-hidden>
+            <path d="M12 2a3 3 0 00-3 3v6a3 3 0 006 0V5a3 3 0 00-3-3zM5 11a7 7 0 0014 0M12 18v3" />
           </svg>
-        </button>
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={clarifyActive ? 'Reply…' : 'Add a task…  try:  213 lab 5 due thu'}
+            disabled={loading}
+            autoComplete="off"
+          />
+          <svg className="ic" viewBox="0 0 24 24" aria-hidden>
+            <path d="M21 15l-5-5L5 21M14 4l6 6" />
+            <rect x="3" y="3" width="18" height="18" rx="3" />
+          </svg>
+          <button
+            type="button"
+            className="send"
+            aria-label="Send"
+            onClick={handleSend}
+            disabled={loading || !value.trim()}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden>
+              <path d="M12 19V5M5 12l7-7 7 7" />
+            </svg>
+          </button>
+        </div>
       </div>
+
       <EstimateModal
         open={pendingEst != null}
         taskTitle={pendingEst?.title ?? ''}
@@ -165,6 +183,6 @@ export function QuickAddBar({ knownCourses, onTaskCreated }: QuickAddBarProps) {
           if (p) finishAdd(p.text, { estimate_hours: hours, clarify: p.clarify })
         }}
       />
-    </div>
+    </>
   )
 }

@@ -1,11 +1,13 @@
 import { buildTimeline } from '@/lib/planning/timeline'
 import { lockSkeleton, availableMinutes, computeDemands, arbitrate } from '@/lib/planning/engine'
+import { buildEnergyWindow } from '@/lib/planning/energy-window'
 import type { PlanRequest } from '@/lib/planning/engine-types'
 
 const W = { windowStart: '2026-06-01T08:00:00.000Z', windowEnd: '2026-06-01T20:00:00.000Z' } // 12h
 const base: PlanRequest = {
   ...W, sessionMode: '90_20', workLifeDial: 0.5, workHourCap: 8,
   minChunkMinutes: 60, maxConsecutiveHeavy: 4, skeleton: [], tasks: [], habits: [],
+  energyWindow: buildEnergyWindow(W.windowStart),
 }
 
 describe('Pass 1 skeleton + capacity', () => {

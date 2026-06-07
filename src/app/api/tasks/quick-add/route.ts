@@ -68,11 +68,16 @@ export async function POST(request: Request) {
   const knownCourses = (courses ?? []).map((c) => c.name)
 
   let parsed: QuickAddResult
-  try {
-    const caller = createAnthropicCaller()
-    parsed = await parseQuickAdd(text, { knownCourses }, caller, { now, knownCourses })
-  } catch {
+  if (!process.env.ANTHROPIC_API_KEY) {
     parsed = parseQuickAddLocal(text, { now, knownCourses })
+  } else {
+    try {
+      const caller = createAnthropicCaller()
+      parsed = await parseQuickAdd(text, { knownCourses }, caller, { now, knownCourses })
+    } catch (err) {
+      console.warn('[quick-add] LLM parse failed, falling back to local:', (err as Error).message)
+      parsed = parseQuickAddLocal(text, { now, knownCourses })
+    }
   }
 
   if (clarify) parsed = mergeClarify(parsed, clarify)

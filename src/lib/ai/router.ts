@@ -275,20 +275,28 @@ export async function handleIntent(
     }
 
     case 'replan': {
-      const { scope, instruction, constraints } = parsed as unknown as ParsedReplan
+      const { scope, instruction } = parsed as unknown as ParsedReplan
       const today = new Date().toISOString().slice(0, 10)
       const planDate =
         scope === 'tomorrow'
           ? new Date(Date.now() + 86400000).toISOString().slice(0, 10)
           : today
 
+      // Use service-role key for the internal replan call so the session cookie
+      // is not needed (this runs server-side from the AI router)
       const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
       const res = await fetch(`${appUrl}/api/plan/replan`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan_date: planDate, instruction, from_time: new Date().toISOString() }),
-      })
-      const data = await res.json().catch(() => ({}))
+        headers: {
+          'Content-Type': 'application/json',
+          // Carry auth as a custom header that replan can use to identify the user
+          'x-user-id': userId,
+          'x-service-key': serviceKey,
+        },
+        body: JSON.stringify({ plan_date: planDate, instruction, from_time: new Date().toISOString(), user_id: userId }),
+      }).catch(() => null)
+      const data = res ? await res.json().catch(() => ({})) : {}
       return { action: 'replan', result: data, confirmation_needed: false }
     }
 

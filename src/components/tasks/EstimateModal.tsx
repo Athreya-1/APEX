@@ -1,6 +1,8 @@
 'use client'
+
 import { useEffect, useState } from 'react'
 import { EST_STOPS, DEFAULT_EST_STOP_INDEX, formatEstimateHours, hoursFromStopIndex } from '@/lib/tasks/estimate-stops'
+import { SparkIcon } from '@/components/ui/SparkIcon'
 
 interface EstimateModalProps {
   open: boolean
@@ -9,6 +11,8 @@ interface EstimateModalProps {
   onConfirm: (hours: number) => void
   onCancel: () => void
 }
+
+const PRESET_INDICES = [1, 3, 5, 8, 12, 16]
 
 export function EstimateModal({ open, taskTitle, suggestedHours, onConfirm, onCancel }: EstimateModalProps) {
   const [stopIndex, setStopIndex] = useState(DEFAULT_EST_STOP_INDEX)
@@ -20,7 +24,10 @@ export function EstimateModal({ open, taskTitle, suggestedHours, onConfirm, onCa
       let diff = Infinity
       EST_STOPS.forEach((s, i) => {
         const d = Math.abs(s - suggestedHours)
-        if (d < diff) { diff = d; best = i }
+        if (d < diff) {
+          diff = d
+          best = i
+        }
       })
       setStopIndex(best)
     } else {
@@ -38,82 +45,79 @@ export function EstimateModal({ open, taskTitle, suggestedHours, onConfirm, onCa
     return () => window.removeEventListener('keydown', onKey)
   }, [open, stopIndex, onConfirm, onCancel])
 
-  if (!open) return null
-
   const hours = hoursFromStopIndex(stopIndex)
-  const hint = hours >= 13 ? 'Large block — planner may split across sessions.' : undefined
+  const hint = hours >= 13 ? 'Large block — planner may split across sessions.' : ''
 
   return (
     <div
+      className={`todo-estmodal${open ? ' show' : ''}`}
       role="dialog"
       aria-modal="true"
       aria-labelledby="est-modal-title"
       onClick={onCancel}
-      style={{
-        position: 'fixed', inset: 0, zIndex: 100,
-        background: 'rgba(0,0,0,.65)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: 20,
-      }}
     >
       <div
+        className="todo-estmodal-card"
         onClick={(e) => e.stopPropagation()}
-        style={{
-          width: '100%', maxWidth: 360,
-          background: 'var(--bg2)',
-          border: '1px solid var(--border2)',
-          borderRadius: 16,
-          padding: '20px 22px',
-        }}
+        onKeyDown={(e) => e.stopPropagation()}
       >
-        <div id="est-modal-title" style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>
-          Set a time estimate
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 16, lineHeight: 1.5 }}>
-          First time for this kind of task — your answer trains future estimates for &ldquo;{taskTitle}&rdquo;.
-        </div>
-        <div style={{
-          fontFamily: 'var(--font-mono)', fontSize: 28, fontWeight: 500,
-          color: 'var(--amber)', textAlign: 'center', marginBottom: 12,
-        }}>
-          {formatEstimateHours(hours)}
-        </div>
-        <input
-          type="range"
-          min={0}
-          max={EST_STOPS.length - 1}
-          step={1}
-          value={stopIndex}
-          onChange={(e) => setStopIndex(Number(e.target.value))}
-          aria-label="Estimate hours"
-          style={{ width: '100%', accentColor: 'var(--amber)' }}
-        />
-        {hint && (
-          <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 10, fontFamily: 'var(--font-mono)' }}>
-            {hint}
+        <div className="todo-ep-head">
+          <div className="todo-ep-ic">
+            <SparkIcon className="todo-autoic" />
           </div>
-        )}
-        <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
-          <button
-            type="button"
-            onClick={onCancel}
-            style={{
-              flex: 1, padding: '10px 0', borderRadius: 10,
-              background: 'var(--bg3)', border: '1px solid var(--border2)',
-              color: 'var(--text2)', fontSize: 12, cursor: 'pointer',
-            }}
-          >
-            Cancel
+          <div>
+            <div id="est-modal-title" className="todo-ep-title">
+              How long will <b>{taskTitle}</b> take?
+            </div>
+            <p className="todo-ep-sub">
+              First time for this kind of task — your answer trains future estimates.
+            </p>
+          </div>
+        </div>
+
+        <div className="todo-ep-presets">
+          {PRESET_INDICES.map((i) => (
+            <button
+              key={i}
+              type="button"
+              className={stopIndex === i ? 'on' : ''}
+              onClick={() => setStopIndex(i)}
+            >
+              {formatEstimateHours(EST_STOPS[i])}
+            </button>
+          ))}
+        </div>
+
+        <div className="todo-ep-sliderrow">
+          <div className="todo-ep-bigval">
+            {hours < 1 ? `${Math.round(hours * 60)}` : hours % 1 === 0 ? `${hours}` : hours.toFixed(1)}
+            <span>{hours < 1 ? 'm' : 'h'}</span>
+          </div>
+          <div className="todo-ep-sliderwrap">
+            <input
+              type="range"
+              className="todo-ep-range"
+              min={0}
+              max={EST_STOPS.length - 1}
+              step={1}
+              value={stopIndex}
+              onChange={(e) => setStopIndex(Number(e.target.value))}
+              aria-label="Estimate hours"
+            />
+            <div className="todo-ep-scale">
+              <span>30m</span>
+              <span>24h</span>
+            </div>
+          </div>
+        </div>
+
+        <p className={`todo-ep-hint${hint ? ' show' : ''}`}>{hint}</p>
+
+        <div className="todo-ep-foot">
+          <button type="button" className="lnk" onClick={onCancel}>
+            Skip for now
           </button>
-          <button
-            type="button"
-            onClick={() => onConfirm(hours)}
-            style={{
-              flex: 1, padding: '10px 0', borderRadius: 10,
-              background: 'var(--amber)', border: 'none',
-              color: '#000', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-            }}
-          >
+          <button type="button" className="todo-btn-primary" onClick={() => onConfirm(hours)}>
             Set estimate
           </button>
         </div>

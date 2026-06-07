@@ -100,6 +100,8 @@ create table public.user_preferences (
   urgency_flip_warning_hours integer not null default 48,
   wake_time_default        text not null default '08:00',
   sleep_time_default       text not null default '23:30',
+  peak_start               text not null default '09:00',
+  peak_end                 text not null default '12:00',
   session_mode             session_mode not null default '90_20',
   created_at               timestamptz not null default now()
 );

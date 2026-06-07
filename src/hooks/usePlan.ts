@@ -28,11 +28,13 @@ export function usePlan(userId: string | undefined, planDate: string) {
 
       const { data: blockData } = await supabase
         .from('plan_blocks')
-        .select('*')
+        .select('*, task:tasks(*, course:courses(id,name,color))')
         .eq('plan_id', planData.id)
         .order('sort_order')
 
-      if (blockData) setBlocks(blockData as PlanBlock[])
+      if (blockData) {
+        setBlocks(blockData.map(({ task, ...block }) => ({ ...block, task: task ?? undefined })) as PlanBlock[])
+      }
     } else {
       setPlan(null)
       setBlocks([])
@@ -55,7 +57,12 @@ export function usePlan(userId: string | undefined, planDate: string) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ plan_date: planDate, sleep_time: sleepTime, session_mode: sessionMode, constraints }),
         })
-        const data = await res.json()
+        if (!res.ok) {
+          const text = await res.text().catch(() => '')
+          setError(`Plan generation failed (${res.status})${text ? ': ' + text.slice(0, 120) : ''}`)
+          return
+        }
+        const data = await res.json().catch(() => ({}))
         if (data.error) {
           setError(data.error)
         } else {
@@ -91,12 +98,15 @@ export function usePlan(userId: string | undefined, planDate: string) {
       setActiveCheckinBlockId(null)
 
       if (choice !== 'done' && extraMins) {
-        // Trigger replan when block needs extra time
-        await fetch('/api/plan/replan', {
+        // Trigger micro-replan when block needs extra time
+        const res = await fetch('/api/plan/replan', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ block_id: blockId, extra_mins: extraMins, plan_date: planDate }),
-        })
+        }).catch(() => null)
+        if (!res?.ok) {
+          console.warn('[usePlan] replan request failed:', res?.status)
+        }
         await fetchPlan()
       }
     },

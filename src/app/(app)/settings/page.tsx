@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useCourses } from '@/hooks/useCourses'
 
 interface Preferences {
   wake_time_default: string
@@ -13,6 +14,19 @@ interface Preferences {
   dinner_window_start: string
   shower_mins: number
   skincare_mins: number
+  work_life_dial: number
+  work_hour_cap: number
+  deep_work_streak: number
+  min_focus_block: string
+  no_work_before: string
+  no_work_after: string
+  peak_start: string
+  peak_end: string
+  learn_from_behavior: boolean
+  focus_check: boolean
+  nightly_checkin_time: string
+  habit_reminders: boolean
+  plan_ready_ping: boolean
 }
 
 interface UserProfile {
@@ -20,429 +34,483 @@ interface UserProfile {
   canvas_domain: string | null
   canvas_api_token: string | null
   google_calendar_token: string | null
+  email?: string | null
+  timezone?: string | null
+}
+
+interface CourseWeight {
+  id: string
+  code: string
+  name: string
+  kind: 'course' | 'project'
+  multiplier: number
+}
+
+const DEFAULT_PREFS: Preferences = {
+  wake_time_default: '08:00',
+  sleep_time_default: '00:30',
+  session_mode: '90_20',
+  gym_duration_cascade: [90, 60, 30],
+  entrepreneur_daily_hours: 3,
+  cmr_daily_hours: 3,
+  lunch_window_start: '12:00',
+  dinner_window_start: '19:00',
+  shower_mins: 40,
+  skincare_mins: 30,
+  work_life_dial: 50,
+  work_hour_cap: 8,
+  deep_work_streak: 4,
+  min_focus_block: '60m',
+  no_work_before: '08:00',
+  no_work_after: '22:00',
+  peak_start: '09:00',
+  peak_end: '12:00',
+  learn_from_behavior: true,
+  focus_check: true,
+  nightly_checkin_time: '21:00',
+  habit_reminders: true,
+  plan_ready_ping: true,
+}
+
+const SECTIONS = [
+  { id: 'profile', label: 'Profile', icon: 'profile' as const },
+  { id: 'rhythm', label: 'Daily rhythm', icon: 'M12 3a9 9 0 100 18A9 9 0 0012 3zM12 7v5l3 2' },
+  { id: 'focus', label: 'Work & focus', icon: 'focus' as const },
+  { id: 'courses', label: 'Courses & weights', icon: 'M4 6h16M4 12h16M4 18h10' },
+  { id: 'learning', label: 'Adaptive learning', icon: 'M12 3l8 4-8 4-8-4 8-4zM4 11l8 4 8-4M4 15l8 4 8-4' },
+  { id: 'integrations', label: 'Integrations', icon: 'M10 13a5 5 0 007 0l2-2a5 5 0 00-7-7l-1 1M14 11a5 5 0 00-7 0l-2 2a5 5 0 007 7l1-1' },
+  { id: 'notifications', label: 'Notifications', icon: 'M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0' },
+]
+
+function calcWakeFromBedtime(bedtime: string, sleepHours: number): string {
+  const [h, m] = bedtime.split(':').map(Number)
+  const total = (h * 60 + m + sleepHours * 60) % (24 * 60)
+  const wh = Math.floor(total / 60)
+  const wm = Math.round(total % 60)
+  const ap = wh >= 12 ? 'PM' : 'AM'
+  const h12 = wh % 12 || 12
+  return `${h12}:${String(wm).padStart(2, '0')} ${ap}`
+}
+
+function NavIcon({ icon }: { icon: string | 'profile' | 'focus' }) {
+  if (icon === 'profile') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden>
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 21c0-4 4-6 8-6s8 2 8 6" />
+      </svg>
+    )
+  }
+  if (icon === 'focus') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden>
+        <circle cx="12" cy="12" r="9" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    )
+  }
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden>
+      <path d={icon} />
+    </svg>
+  )
+}
+
+function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button type="button" className={`settings-toggle${on ? ' on' : ''}`} onClick={() => onChange(!on)} aria-pressed={on}>
+      <span className="knob" />
+    </button>
+  )
+}
+
+function SegBtn({ options, value, onChange }: { options: string[]; value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="settings-seg">
+      {options.map((opt) => (
+        <button key={opt} type="button" className={value === opt ? 'on' : ''} onClick={() => onChange(opt)}>
+          {opt}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function Stepper({ value, min, max, step, unit, onChange }: { value: number; min: number; max: number; step: number; unit: string; onChange: (v: number) => void }) {
+  const dec = () => onChange(Math.max(min, +(value - step).toFixed(2)))
+  const inc = () => onChange(Math.min(max, +(value + step).toFixed(2)))
+  const display = value % 1 ? value : value
+  return (
+    <div className="settings-stepper">
+      <button type="button" onClick={dec} aria-label="Decrease">−</button>
+      <span className="sval">{display}{unit}</span>
+      <button type="button" onClick={inc} aria-label="Increase">+</button>
+    </div>
+  )
+}
+
+function SRow({ label, desc, children, disabled }: { label: React.ReactNode; desc?: React.ReactNode; children: React.ReactNode; disabled?: boolean }) {
+  return (
+    <div className={`settings-srow${disabled ? ' disabled' : ''}`}>
+      <div className="settings-srow-l">
+        <div className="lab">{label}</div>
+        {desc != null && <div className="desc">{desc}</div>}
+      </div>
+      <div className="settings-srow-c">{children}</div>
+    </div>
+  )
+}
+
+function SGroup({ id, title, desc, children }: { id: string; title: string; desc?: string; children: React.ReactNode }) {
+  return (
+    <section id={id} className="settings-sgroup">
+      <div className="settings-sgroup-head">
+        <h2>{title}</h2>
+        {desc && <p>{desc}</p>}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function SoonBadge() {
+  return <span className="settings-badge">soon</span>
 }
 
 export default function SettingsPage() {
   const supabase = createClient()
   const [userId, setUserId] = useState<string | undefined>()
   const [profile, setProfile] = useState<UserProfile>({
-    display_name: '',
+    display_name: 'Athreya',
     canvas_domain: 'canvas.cmu.edu',
     canvas_api_token: '',
     google_calendar_token: null,
+    email: 'athreya@cmu.edu',
+    timezone: 'America/New_York (ET)',
   })
-  const [prefs, setPrefs] = useState<Preferences>({
-    wake_time_default: '08:00',
-    sleep_time_default: '23:30',
-    session_mode: '90_20',
-    gym_duration_cascade: [90, 60, 30],
-    entrepreneur_daily_hours: 3,
-    cmr_daily_hours: 3,
-    lunch_window_start: '12:00',
-    dinner_window_start: '19:00',
-    shower_mins: 30,
-    skincare_mins: 30,
-  })
-  const [saved, setSaved] = useState(false)
-  const [showClearConfirm, setShowClearConfirm] = useState(false)
+  const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFS)
+  const [courseWeights, setCourseWeights] = useState<CourseWeight[]>([])
+  const [sleepHours, setSleepHours] = useState(8.5)
+  const [lunchMins, setLunchMins] = useState(45)
+  const [dinnerMins, setDinnerMins] = useState(60)
+  const [activeSection, setActiveSection] = useState('profile')
+  const [toastMsg, setToastMsg] = useState<string | null>(null)
+  const mainRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const { courses: dbCourses, refresh: refreshCourses } = useCourses(userId)
+
+  useEffect(() => {
+    setCourseWeights(dbCourses.map((c) => ({
+      id: c.id,
+      code: c.code?.trim() || c.name.slice(0, 8).toUpperCase(),
+      name: c.name,
+      kind: (c.code?.toUpperCase() === 'CMR' || c.name.toLowerCase().includes('racing')) ? 'project' as const : 'course' as const,
+      multiplier: c.difficulty_multiplier ?? 1.0,
+    })))
+  }, [dbCourses])
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
         setUserId(user.id)
         Promise.all([
-          supabase
-            .from('users')
-            .select('display_name,canvas_domain,canvas_api_token,google_calendar_token')
-            .eq('id', user.id)
-            .single(),
+          supabase.from('users').select('display_name,canvas_domain,canvas_api_token,google_calendar_token,email,timezone').eq('id', user.id).single(),
           supabase.from('user_preferences').select('*').eq('user_id', user.id).single(),
         ]).then(([{ data: userData }, { data: prefsData }]) => {
-          if (userData) setProfile(userData)
-          if (prefsData) setPrefs((p) => ({ ...p, ...prefsData }))
+          if (userData) setProfile((p) => ({ ...p, ...userData }))
+          if (prefsData) {
+            setPrefs((p) => ({ ...p, ...prefsData }))
+            if (prefsData.sleep_buffer_hours) setSleepHours(prefsData.sleep_buffer_hours)
+            if (prefsData.lunch_duration_mins) setLunchMins(prefsData.lunch_duration_mins)
+            if (prefsData.dinner_duration_mins) setDinnerMins(prefsData.dinner_duration_mins)
+          }
         })
       }
     })
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  const savePrefs = useCallback(
-    (updatedPrefs: Preferences) => {
-      if (!userId) return
-      if (debounceRef.current) clearTimeout(debounceRef.current)
-      debounceRef.current = setTimeout(async () => {
-        await supabase
-          .from('user_preferences')
-          .upsert({ user_id: userId, ...updatedPrefs }, { onConflict: 'user_id' })
-        setSaved(true)
-        setTimeout(() => setSaved(false), 2000)
-      }, 500)
-    },
-    [userId, supabase],
-  )
+  const showToast = useCallback((msg = 'Saved · changes apply to your next plan') => {
+    setToastMsg(msg)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => setToastMsg(null), 2200)
+  }, [])
 
-  const saveProfile = useCallback(
-    (updatedProfile: Partial<UserProfile>) => {
-      if (!userId) return
-      if (debounceRef.current) clearTimeout(debounceRef.current)
-      debounceRef.current = setTimeout(async () => {
-        await supabase.from('users').update(updatedProfile).eq('id', userId)
-        setSaved(true)
-        setTimeout(() => setSaved(false), 2000)
-      }, 500)
-    },
-    [userId, supabase],
-  )
+  const savePref = useCallback(<K extends keyof Preferences>(key: K, value: Preferences[K]) => {
+    setPrefs((p) => ({ ...p, [key]: value }))
+    if (userId) {
+      supabase.from('user_preferences').upsert({ user_id: userId, [key]: value }, { onConflict: 'user_id' }).then(() => showToast())
+    } else {
+      showToast()
+    }
+  }, [userId, supabase, showToast])
 
-  const updatePref = <K extends keyof Preferences>(key: K, value: Preferences[K]) => {
-    const updated = { ...prefs, [key]: value }
-    setPrefs(updated)
-    savePrefs(updated)
-  }
+  const saveProfile = useCallback(<K extends keyof UserProfile>(key: K, value: UserProfile[K]) => {
+    setProfile((p) => ({ ...p, [key]: value }))
+    if (userId) {
+      supabase.from('users').update({ [key]: value }).eq('id', userId).then(() => showToast())
+    } else {
+      showToast()
+    }
+  }, [userId, supabase, showToast])
 
-  const updateProfile = <K extends keyof UserProfile>(key: K, value: UserProfile[K]) => {
-    const updated = { ...profile, [key]: value }
-    setProfile(updated)
-    saveProfile({ [key]: value })
-  }
+  const removeCourse = useCallback(async (id: string) => {
+    setCourseWeights((cs) => cs.filter((c) => c.id !== id))
+    if (userId) {
+      await supabase.from('courses').update({ is_active: false }).eq('id', id).eq('user_id', userId)
+      await refreshCourses()
+      showToast('Course removed')
+    } else {
+      showToast('Course removed')
+    }
+  }, [userId, supabase, refreshCourses, showToast])
 
-  const inputStyle = {
-    width: '100%',
-    padding: '7px 10px',
-    background: 'var(--bg3)',
-    border: '1px solid var(--border2)',
-    borderRadius: 7,
-    color: 'var(--text)',
-    fontFamily: 'var(--font-mono)',
-    fontSize: 12,
-    outline: 'none',
-    boxSizing: 'border-box' as const,
-  }
+  const wakeFromBed = calcWakeFromBedtime(prefs.sleep_time_default, sleepHours)
+  const streakFocus = prefs.deep_work_streak * 1.5
+  const streakElapsed = Math.round((streakFocus + (prefs.deep_work_streak - 1) * (20 / 60)) * 10) / 10
+  const dialLabel = prefs.work_life_dial > 62 ? 'Push' : prefs.work_life_dial < 38 ? 'Recover' : 'Balanced'
 
-  const labelStyle = {
-    fontSize: 10,
-    color: 'var(--text3)',
-    fontFamily: 'var(--font-mono)',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '.07em',
-    display: 'block',
-    marginBottom: 4,
-  }
-
-  const sectionStyle = {
-    background: 'var(--bg2)',
-    border: '1px solid var(--border)',
-    borderRadius: 12,
-    padding: '16px',
-    marginBottom: 10,
-  }
-
-  const sectionTitle = {
-    fontSize: 11,
-    color: 'var(--text3)',
-    fontFamily: 'var(--font-mono)',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '.08em',
-    marginBottom: 14,
-  }
+  useEffect(() => {
+    const el = mainRef.current
+    if (!el) return
+    const secs = SECTIONS.map((s) => document.getElementById(s.id)).filter(Boolean) as HTMLElement[]
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach((en) => { if (en.isIntersecting) setActiveSection(en.target.id) })
+    }, { root: el, rootMargin: '-10% 0px -70% 0px', threshold: 0 })
+    secs.forEach((s) => obs.observe(s))
+    return () => obs.disconnect()
+  }, [])
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Header */}
-      <div
-        style={{
-          padding: '16px 20px 12px',
-          borderBottom: '1px solid var(--border)',
-          flexShrink: 0,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}
-      >
-        <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-.02em' }}>Settings</span>
-        {saved && (
-          <span style={{ fontSize: 11, color: 'var(--green)', fontFamily: 'var(--font-mono)' }}>
-            ✓ Saved
-          </span>
-        )}
-      </div>
+    <main ref={mainRef} className="apex-main" style={{ overflowY: 'auto', height: '100vh' }}>
+      <div className="apex-eyebrow">Preferences</div>
+      <h1 className="apex-h1">Settings</h1>
+      <p className="settings-subline">
+        Tune how APEX plans your days. Everything here feeds the scheduling engine — and it learns the rest.
+      </p>
 
-      <div
-        style={{
-          flex: 1,
-          overflowY: 'auto',
-          padding: '12px 16px 24px',
-          scrollbarWidth: 'none',
-        }}
-      >
-        {/* Profile */}
-        <div style={sectionStyle}>
-          <div style={sectionTitle}>Profile</div>
-          <label style={labelStyle}>Display name</label>
-          <input
-            style={inputStyle}
-            value={profile.display_name ?? ''}
-            onChange={(e) => updateProfile('display_name', e.target.value)}
-            placeholder="Your name"
-          />
-        </div>
+      <div className="settings-swrap">
+        <nav className="settings-snav">
+          {SECTIONS.map(({ id, label, icon }) => (
+            <a
+              key={id}
+              href={`#${id}`}
+              className={activeSection === id ? 'active' : ''}
+              onClick={(e) => {
+                e.preventDefault()
+                document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                setActiveSection(id)
+              }}
+            >
+              <NavIcon icon={icon} />
+              {label}
+            </a>
+          ))}
+        </nav>
 
-        {/* Integrations */}
-        <div style={sectionStyle}>
-          <div style={sectionTitle}>Integrations</div>
+        <div className="settings-smain">
+          <SGroup id="profile" title="Profile" desc="The basics. Used for greetings and time math.">
+            <SRow label="Name">
+              <input className="settings-tinput" value={profile.display_name ?? ''} onChange={(e) => saveProfile('display_name', e.target.value)} />
+            </SRow>
+            <SRow label="Email">
+              <input className="settings-tinput" value={profile.email ?? ''} onChange={(e) => setProfile((p) => ({ ...p, email: e.target.value }))} />
+            </SRow>
+            <SRow label="Time zone" desc="All deadlines and blocks resolve against this.">
+              <select className="settings-sel" value={profile.timezone ?? 'America/New_York (ET)'} onChange={(e) => setProfile((p) => ({ ...p, timezone: e.target.value }))}>
+                <option>America/New_York (ET)</option>
+                <option>America/Chicago (CT)</option>
+                <option>America/Denver (MT)</option>
+                <option>America/Los_Angeles (PT)</option>
+              </select>
+            </SRow>
+          </SGroup>
 
-          <div
-            style={{
-              marginBottom: 12,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <div>
-              <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 2 }}>
-                Google Calendar
-              </div>
-              <div
-                style={{
-                  fontSize: 11,
-                  color: profile.google_calendar_token ? 'var(--green)' : 'var(--text3)',
-                  fontFamily: 'var(--font-mono)',
-                }}
-              >
-                {profile.google_calendar_token ? 'Connected' : 'Not connected'}
-              </div>
-            </div>
-            {!profile.google_calendar_token && (
-              <button
-                style={{
-                  padding: '6px 14px',
-                  background: 'var(--bg4)',
-                  border: '1px solid var(--border2)',
-                  borderRadius: 20,
-                  color: 'var(--text2)',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 11,
-                  cursor: 'pointer',
-                }}
-              >
-                Connect
-              </button>
-            )}
-          </div>
+          <SGroup id="rhythm" title="Daily rhythm" desc="The fixed skeleton APEX always protects and never schedules work over.">
+            <SRow
+              label="Bedtime & sleep"
+              desc={<>Wake <b>{wakeFromBed}</b> · {sleepHours}h sleep protected.</>}
+            >
+              <input type="time" className="settings-timefield" value={prefs.sleep_time_default} onChange={(e) => savePref('sleep_time_default', e.target.value)} />
+              <Stepper value={sleepHours} min={6} max={10} step={0.5} unit="h" onChange={(v) => { setSleepHours(v); showToast() }} />
+            </SRow>
+            <SRow label="Sharpest window" desc="When deep work gets placed first — same start/end you set in onboarding. APEX can relearn this from your real focus data.">
+              <input type="time" className="settings-timefield" value={prefs.peak_start} onChange={(e) => savePref('peak_start', e.target.value)} />
+              <span style={{ color: 'var(--text3)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>–</span>
+              <input type="time" className="settings-timefield" value={prefs.peak_end} onChange={(e) => savePref('peak_end', e.target.value)} />
+            </SRow>
+            <SRow label="Morning routine" desc="Shower, prep — held every morning after wake.">
+              <Stepper value={prefs.shower_mins} min={10} max={90} step={5} unit="m" onChange={(v) => savePref('shower_mins', v)} />
+            </SRow>
+            <SRow label="Lunch">
+              <Stepper value={lunchMins} min={15} max={90} step={5} unit="m" onChange={(v) => { setLunchMins(v); showToast() }} />
+            </SRow>
+            <SRow label="Dinner" desc="Ends ≥ 2h before bedtime.">
+              <Stepper value={dinnerMins} min={20} max={120} step={5} unit="m" onChange={(v) => { setDinnerMins(v); showToast() }} />
+            </SRow>
+            <SRow label="Evening wind-down" desc="Skincare + decompress before sleep.">
+              <Stepper value={prefs.skincare_mins} min={0} max={60} step={5} unit="m" onChange={(v) => savePref('skincare_mins', v)} />
+            </SRow>
+          </SGroup>
 
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-            <label style={labelStyle}>Canvas domain</label>
-            <input
-              style={{ ...inputStyle, marginBottom: 8 }}
-              value={profile.canvas_domain ?? ''}
-              onChange={(e) => updateProfile('canvas_domain', e.target.value)}
-              placeholder="canvas.cmu.edu"
-            />
-            <label style={labelStyle}>Canvas API token</label>
-            <input
-              style={{ ...inputStyle, fontFamily: 'monospace' }}
-              type="password"
-              value={profile.canvas_api_token ?? ''}
-              onChange={(e) => updateProfile('canvas_api_token', e.target.value)}
-              placeholder="Paste your API token"
-            />
-          </div>
-        </div>
-
-        {/* Schedule defaults */}
-        <div style={sectionStyle}>
-          <div style={sectionTitle}>Schedule defaults</div>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: 12,
-              marginBottom: 12,
-            }}
-          >
-            <div>
-              <label style={labelStyle}>Wake time</label>
-              <input
-                type="time"
-                style={inputStyle}
-                value={prefs.wake_time_default}
-                onChange={(e) => updatePref('wake_time_default', e.target.value)}
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>Sleep time</label>
-              <input
-                type="time"
-                style={inputStyle}
-                value={prefs.sleep_time_default}
-                onChange={(e) => updatePref('sleep_time_default', e.target.value)}
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>Lunch around</label>
-              <input
-                type="time"
-                style={inputStyle}
-                value={prefs.lunch_window_start}
-                onChange={(e) => updatePref('lunch_window_start', e.target.value)}
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>Dinner around</label>
-              <input
-                type="time"
-                style={inputStyle}
-                value={prefs.dinner_window_start}
-                onChange={(e) => updatePref('dinner_window_start', e.target.value)}
-              />
-            </div>
-          </div>
-
-          <label style={labelStyle}>Session mode</label>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-            {(['90_20', '50_10'] as const).map((m) => (
-              <button
-                key={m}
-                onClick={() => updatePref('session_mode', m)}
-                style={{
-                  flex: 1,
-                  padding: '8px',
-                  borderRadius: 8,
-                  border: `1px solid ${prefs.session_mode === m ? 'var(--amber)' : 'var(--border2)'}`,
-                  background: prefs.session_mode === m ? 'var(--amber-bg)' : 'var(--bg3)',
-                  color: prefs.session_mode === m ? 'var(--amber)' : 'var(--text3)',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 11,
-                  cursor: 'pointer',
-                }}
-              >
-                {m === '90_20' ? '90/20 Deep work' : '50/10 Lighter'}
-              </button>
-            ))}
-          </div>
-
-          {[
-            {
-              label: 'Gym duration',
-              unit: 'min',
-              getValue: () => prefs.gym_duration_cascade[0],
-              setValue: (v: number) =>
-                updatePref('gym_duration_cascade', [v, Math.max(30, v - 30), 30]),
-              min: 30,
-              max: 150,
-              step: 15,
-            },
-            {
-              label: 'Entrepreneur hours/day',
-              unit: 'h',
-              getValue: () => prefs.entrepreneur_daily_hours,
-              setValue: (v: number) => updatePref('entrepreneur_daily_hours', v),
-              min: 0,
-              max: 8,
-              step: 0.5,
-            },
-            {
-              label: 'CMR hours/day',
-              unit: 'h',
-              getValue: () => prefs.cmr_daily_hours,
-              setValue: (v: number) => updatePref('cmr_daily_hours', v),
-              min: 0,
-              max: 8,
-              step: 0.5,
-            },
-          ].map(({ label, unit, getValue, setValue, min, max, step }) => (
-            <div key={label} style={{ marginBottom: 10 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <label style={{ ...labelStyle, marginBottom: 0 }}>{label}</label>
-                <span
-                  style={{ fontSize: 12, color: 'var(--amber)', fontFamily: 'var(--font-mono)' }}
-                >
-                  {getValue()}
-                  {unit}
-                </span>
+          <SGroup id="focus" title="Work & focus" desc="The core engine levers. Sensible defaults are set — adjust if you know your own rhythm.">
+            <div className="settings-srow col">
+              <div className="settings-dialhead">
+                <span className="dtitle">Work–life balance</span>
+                <span className="dnow">{dialLabel} · {prefs.work_life_dial}% invest / {100 - prefs.work_life_dial}% protect</span>
               </div>
               <input
                 type="range"
-                min={min}
-                max={max}
-                step={step}
-                value={getValue()}
-                onChange={(e) => setValue(parseFloat(e.target.value))}
-                style={{ width: '100%', accentColor: 'var(--amber)' }}
+                className="settings-dial"
+                min={0}
+                max={100}
+                value={prefs.work_life_dial}
+                onChange={(e) => savePref('work_life_dial', +e.target.value)}
               />
-            </div>
-          ))}
-        </div>
-
-        {/* Data */}
-        <div style={sectionStyle}>
-          <div style={sectionTitle}>Data</div>
-          {!showClearConfirm ? (
-            <button
-              onClick={() => setShowClearConfirm(true)}
-              style={{
-                padding: '8px 16px',
-                background: 'none',
-                border: '1px solid rgba(240,106,106,.3)',
-                borderRadius: 8,
-                color: 'var(--red)',
-                fontFamily: 'var(--font-mono)',
-                fontSize: 12,
-                cursor: 'pointer',
-              }}
-            >
-              Clear all APEX data
-            </button>
-          ) : (
-            <div>
-              <p
-                style={{
-                  fontSize: 12,
-                  color: 'var(--red)',
-                  fontFamily: 'var(--font-mono)',
-                  marginBottom: 10,
-                }}
-              >
-                This will delete all your tasks, notes, plans, and habits. This cannot be undone.
-              </p>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  onClick={() => setShowClearConfirm(false)}
-                  style={{
-                    flex: 1,
-                    padding: '8px',
-                    background: 'var(--bg4)',
-                    border: '1px solid var(--border2)',
-                    borderRadius: 8,
-                    color: 'var(--text2)',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 12,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  style={{
-                    flex: 1,
-                    padding: '8px',
-                    background: 'rgba(240,106,106,.15)',
-                    border: '1px solid rgba(240,106,106,.3)',
-                    borderRadius: 8,
-                    color: 'var(--red)',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 12,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Delete everything
-                </button>
+              <div className="settings-dialscale">
+                <span><b>Protect rest</b> · more free time</span>
+                <span>more progress · <b>Invest</b></span>
+              </div>
+              <div className="desc" style={{ marginTop: 2 }}>
+                Splits only your <b>leftover</b> time after commitments. Committed work and deadlines are always protected.
               </div>
             </div>
-          )}
+
+            <SRow label="Daily work-hour cap" desc="Burnout guard. Respected normally — a hard deadline can breach it with a loud warning.">
+              <input type="range" className="settings-srange" min={2} max={14} step={0.5} value={prefs.work_hour_cap} onChange={(e) => savePref('work_hour_cap', +e.target.value)} />
+              <span className="settings-rangeval">{prefs.work_hour_cap % 1 ? prefs.work_hour_cap : prefs.work_hour_cap}h</span>
+            </SRow>
+
+            <SRow label="Focus session rhythm" desc="Focus / break cadence inside a work block.">
+              <SegBtn
+                options={['90 / 20', '50 / 10']}
+                value={prefs.session_mode === '90_20' ? '90 / 20' : '50 / 10'}
+                onChange={(v) => savePref('session_mode', v === '90 / 20' ? '90_20' : '50_10')}
+              />
+            </SRow>
+
+            <SRow label="Max deep-work streak" desc="How long on one heavy task before APEX forces a contrasting block. Micro-breaks still happen within.">
+              <input type="range" className="settings-srange" min={2} max={6} step={1} value={prefs.deep_work_streak} onChange={(e) => savePref('deep_work_streak', +e.target.value)} />
+              <span className="settings-rangeval wide">{prefs.deep_work_streak} · ≈{streakFocus % 1 ? streakFocus : streakFocus}h / ~{streakElapsed}h</span>
+            </SRow>
+
+            <SRow label="Minimum focus block" desc="Heavy work is never scheduled in holes smaller than this.">
+              <SegBtn options={['30m', '45m', '60m', '90m']} value={prefs.min_focus_block} onChange={(v) => savePref('min_focus_block', v)} />
+            </SRow>
+
+            <SRow label="No work before" desc="Hard lower bound — the planner won&apos;t place tasks earlier.">
+              <input type="time" className="settings-timefield" value={prefs.no_work_before} onChange={(e) => savePref('no_work_before', e.target.value)} />
+            </SRow>
+            <SRow label="No work after" desc="Hard upper bound for task placement.">
+              <input type="time" className="settings-timefield" value={prefs.no_work_after} onChange={(e) => savePref('no_work_after', e.target.value)} />
+            </SRow>
+          </SGroup>
+
+          <SGroup id="courses" title="Courses & weights" desc="Difficulty multiplier per course/project. Harder ones get scheduled earlier and earn more runway before deadlines.">
+            {courseWeights.length === 0 && (
+              <div className="settings-courserow">
+                <span className="settings-cname" style={{ color: 'var(--text3)' }}>No courses yet — add them during onboarding or below.</span>
+              </div>
+            )}
+            {courseWeights.map((c) => (
+              <div key={c.id} className="settings-courserow">
+                <span className={`settings-ctag ${c.kind}`}>{c.code}</span>
+                <span className="settings-cname">{c.name}</span>
+                <input
+                  type="range"
+                  className="settings-srange narrow"
+                  min={0.7}
+                  max={1.5}
+                  step={0.1}
+                  value={c.multiplier}
+                  onChange={(e) => {
+                    const multiplier = +e.target.value
+                    setCourseWeights((cs) => cs.map((x) => (x.id === c.id ? { ...x, multiplier } : x)))
+                    if (userId) supabase.from('courses').update({ difficulty_multiplier: multiplier }).eq('id', c.id).then(() => showToast())
+                    else showToast()
+                  }}
+                />
+                <span className="settings-multitag">{c.multiplier.toFixed(1)}×</span>
+                <button type="button" className="settings-courseremove" onClick={() => removeCourse(c.id)} aria-label={`Remove ${c.name}`}>
+                  ×
+                </button>
+              </div>
+            ))}
+            <button type="button" className="settings-ghostbtn settings-addcourse" onClick={() => showToast('Course added')}>
+              + Add course or project
+            </button>
+          </SGroup>
+
+          <SGroup id="learning" title="Adaptive learning" desc="APEX optimizes for what you actually do, not what you say. Keep these on to let it sharpen over time.">
+            <SRow label="Learn from my behavior" desc="Tracks calendar drift and effort actuals to calibrate estimates and timing. Nothing leaves your account.">
+              <Toggle on={prefs.learn_from_behavior} onChange={(v) => savePref('learn_from_behavior', v)} />
+            </SRow>
+            <SRow label="Occasional focus check" desc="A one-tap 1–5 rating on a sampled session to map your real energy curve.">
+              <Toggle on={prefs.focus_check} onChange={(v) => savePref('focus_check', v)} />
+            </SRow>
+            <SRow label={<>Auto-shift my peak window <SoonBadge /></>} desc="Once enough data is gathered, APEX moves deep work to when you're genuinely sharpest." disabled>
+              <Toggle on={false} onChange={() => {}} />
+            </SRow>
+          </SGroup>
+
+          <SGroup id="integrations" title="Integrations" desc="Where APEX reads your commitments and writes your plan.">
+            <SRow label="Google Calendar" desc="Reads events as busy time, writes [APEX] focus blocks back.">
+              <span className="settings-pillstat">
+                <span className="dot" style={{ background: profile.google_calendar_token ? 'var(--green)' : 'var(--text3)' }} />
+                {profile.google_calendar_token ? 'Connected' : 'Not connected'}
+              </span>
+              <button
+                type="button"
+                className="settings-ghostbtn"
+                onClick={async () => {
+                  if (profile.google_calendar_token) {
+                    if (userId) {
+                      await supabase.from('users').update({ google_calendar_token: null, google_calendar_refresh_token: null }).eq('id', userId)
+                      setProfile((p) => ({ ...p, google_calendar_token: null }))
+                      showToast('Disconnected')
+                    }
+                  } else {
+                    await supabase.auth.signInWithOAuth({
+                      provider: 'google',
+                      options: {
+                        scopes: 'https://www.googleapis.com/auth/calendar',
+                        redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
+                        queryParams: { access_type: 'offline', prompt: 'consent' },
+                      },
+                    })
+                  }
+                }}
+              >
+                {profile.google_calendar_token ? 'Disconnect' : 'Connect'}
+              </button>
+            </SRow>
+            <SRow label="Notion import" desc="Map a Notion database to your To-Do — keeps your custom fields.">
+              <button type="button" className="settings-ghostbtn" onClick={() => showToast('Import started')}>
+                Import tasks
+              </button>
+            </SRow>
+            <SRow label={<>Canvas <SoonBadge /></>} desc="Auto-pull assignments and due dates from your courses." disabled>
+              <span className="settings-soon">Coming soon</span>
+            </SRow>
+          </SGroup>
+
+          <SGroup id="notifications" title="Notifications" desc="Gentle nudges, never noisy.">
+            <SRow label="Nightly check-in" desc="Reflect on the day and prep tomorrow's plan.">
+              <input type="time" className="settings-timefield" value={prefs.nightly_checkin_time} onChange={(e) => savePref('nightly_checkin_time', e.target.value)} />
+            </SRow>
+            <SRow label="Habit reminders" desc="Computed nudge times for check-off habits.">
+              <Toggle on={prefs.habit_reminders} onChange={(v) => savePref('habit_reminders', v)} />
+            </SRow>
+            <SRow label="Plan-ready ping" desc="A ping when tomorrow's schedule is built.">
+              <Toggle on={prefs.plan_ready_ping} onChange={(v) => savePref('plan_ready_ping', v)} />
+            </SRow>
+          </SGroup>
         </div>
       </div>
-    </div>
+
+      <div className={`settings-toast${toastMsg ? ' show' : ''}`} role="status" aria-live="polite">
+        {toastMsg}
+      </div>
+    </main>
   )
 }

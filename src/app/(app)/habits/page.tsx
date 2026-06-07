@@ -1,126 +1,147 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase/client'
+import { useHabits } from '@/hooks/useHabits'
+import { WeekStrip, WeekLegend, buildTrackItems } from '@/components/habits/WeekStrip'
 import { HabitCard } from '@/components/habits/HabitCard'
-import { WeekStrip } from '@/components/habits/WeekStrip'
-import { UniversalInput } from '@/components/input/UniversalInput'
-import type { Habit, HabitLog } from '@/types'
+import { DecompModal } from '@/components/habits/DecompModal'
+
+const GOAL_COLORS = ['var(--amber)', 'var(--violet)', 'var(--blue)', 'var(--green)', 'var(--pink)']
+const HABIT_COLORS = ['var(--blue)', 'var(--green)', 'var(--pink)', 'var(--amber)', 'var(--violet)']
 
 export default function HabitsPage() {
   const supabase = createClient()
-  const [habits, setHabits] = useState<Habit[]>([])
-  const [logs, setLogs] = useState<HabitLog[]>([])
   const [userId, setUserId] = useState<string | undefined>()
+  const [decompOpen, setDecompOpen] = useState(false)
   const today = format(new Date(), 'yyyy-MM-dd')
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) setUserId(user.id)
     })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  useEffect(() => {
-    if (!userId) return
+  const { habits, logs, goals, isLoading, toggleHabit, createGoalWithHabits } = useHabits(userId)
 
-    Promise.all([
-      supabase.from('habits').select('*').eq('user_id', userId).eq('is_active', true).order('sort_order'),
-      supabase.from('habit_logs').select('*').eq('user_id', userId).gte('logged_date', format(new Date(Date.now() - 30 * 86400000), 'yyyy-MM-dd')),
-    ]).then(([{ data: habitData }, { data: logData }]) => {
-      if (habitData) setHabits(habitData)
-      if (logData) setLogs(logData)
-    })
-  }, [userId])
-
-  const toggleHabit = useCallback(async (habitId: string) => {
-    if (!userId) return
-    const todayLog = logs.find((l) => l.habit_id === habitId && l.logged_date === today)
-
-    if (todayLog) {
-      await supabase.from('habit_logs').delete().eq('id', todayLog.id)
-      setLogs((prev) => prev.filter((l) => l.id !== todayLog.id))
-    } else {
-      const { data } = await supabase.from('habit_logs').insert({
-        habit_id: habitId,
-        user_id: userId,
-        logged_date: today,
-        completed: true,
-        source: 'manual',
-      }).select().single()
-      if (data) setLogs((prev) => [...prev, data as HabitLog])
-    }
-  }, [userId, logs, today])
-
-  const allCompletedDates = [...new Set(logs.filter((l) => l.completed).map((l) => l.logged_date))]
-
-  const overallStreak = (() => {
+  const overallStreak = useMemo(() => {
     let streak = 0
-    let check = new Date()
+    const check = new Date()
     check.setHours(0, 0, 0, 0)
-    while (allCompletedDates.includes(format(check, 'yyyy-MM-dd'))) {
+    while (logs.some((l) => l.logged_date === format(check, 'yyyy-MM-dd') && l.completed)) {
       streak++
-      check = new Date(check.getTime() - 86400000)
+      check.setDate(check.getDate() - 1)
     }
     return streak
-  })()
+  }, [logs])
 
-  const handleInput = useCallback(async (input: string) => {
-    if (!userId) return
-    await fetch('/api/ai', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ input, context: { user_name: 'Athreya', habits: habits.map((h) => ({ name: h.name })) } }),
-    })
-  }, [userId, habits])
+  const habitsDoneToday = habits.filter((h) =>
+    logs.some((l) => l.habit_id === h.id && l.logged_date === today && l.completed),
+  ).length
+
+  const standalone = habits.filter((h) => !h.goal_id)
+  const habitsByGoal = goals.map((g, gi) => ({
+    goal: g,
+    colorClass: gi % 2 === 1 ? ' violet' : '',
+    habits: habits.filter((h) => h.goal_id === g.id),
+  })).filter((g) => g.habits.length > 0)
+
+  const trackItems = useMemo(
+    () => buildTrackItems(goals, habits, GOAL_COLORS, HABIT_COLORS),
+    [goals, habits],
+  )
+
+  const handleGoalCreated = useCallback(async (decomposition: Parameters<typeof createGoalWithHabits>[0]) => {
+    const color = GOAL_COLORS[goals.length % GOAL_COLORS.length]
+    await createGoalWithHabits(decomposition, color)
+  }, [createGoalWithHabits, goals.length])
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Header */}
-      <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-.02em' }}>Habits</span>
-          {overallStreak > 0 && (
-            <div style={{
-              padding: '4px 10px', borderRadius: 20, background: 'var(--amber)',
-              color: '#000', fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 600,
-            }}>
-              🔥 {overallStreak} day streak
+    <main className="apex-main" style={{ paddingBottom: 120 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div className="apex-eyebrow">
+            {goals.length} goal{goals.length === 1 ? '' : 's'} · {habits.length} habit{habits.length === 1 ? '' : 's'}
+            {habits.length > 0 && ` · ${habitsDoneToday}/${habits.length} done today`}
+          </div>
+          <h1 className="apex-h1">Habits</h1>
+        </div>
+        {overallStreak > 0 && (
+          <div className="streakpill">🔥 {overallStreak}-day streak</div>
+        )}
+      </div>
+
+      <WeekStrip trackItems={trackItems} logs={logs} />
+      <WeekLegend trackItems={trackItems} />
+
+      {isLoading && habits.length === 0 && (
+        <div style={{ color: 'var(--text3)', fontFamily: 'var(--font-mono)', fontSize: 12, marginTop: 24 }}>
+          Loading habits…
+        </div>
+      )}
+
+      {habitsByGoal.length > 0 && (
+        <>
+          <div className="section-label">Goals</div>
+          {habitsByGoal.map(({ goal, colorClass, habits: gh }) => (
+            <div key={goal.id} className={`goal-card${colorClass}`}>
+              <div className="goal-head">
+                <span className="goal-ic">🎯</span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 800, fontSize: 17, letterSpacing: -0.4 }}>{goal.name}</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text2)', marginTop: 2 }}>
+                    {gh.length} linked habit{gh.length === 1 ? '' : 's'}
+                    {goal.deadline ? ` · target ${goal.deadline}` : ''}
+                  </div>
+                </div>
+              </div>
+              <div className="habits-in">
+                {gh.map((h) => (
+                  <HabitCard key={h.id} habit={h} logs={logs} onToggle={toggleHabit} accentColor={goal.color} />
+                ))}
+              </div>
             </div>
-          )}
+          ))}
+        </>
+      )}
+
+      <button
+        type="button"
+        className="add-goal"
+        onClick={() => setDecompOpen(true)}
+      >
+        + New goal
+      </button>
+
+      {standalone.length > 0 && (
+        <>
+          <div className="section-label">Standalone habits</div>
+          <div className="standalone-grid">
+            {standalone.map((h, i) => (
+              <HabitCard
+                key={h.id}
+                habit={h}
+                logs={logs}
+                onToggle={toggleHabit}
+                accentColor={h.color ?? HABIT_COLORS[i % HABIT_COLORS.length]}
+              />
+            ))}
+          </div>
+        </>
+      )}
+
+      {!isLoading && habits.length === 0 && (
+        <div style={{ marginTop: 24, color: 'var(--text2)', fontSize: 14, lineHeight: 1.6 }}>
+          No habits yet. Add a goal above or complete onboarding to import your recurring commitments.
         </div>
-        <WeekStrip completedDates={allCompletedDates} />
-      </div>
+      )}
 
-      {/* Habit list */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10, scrollbarWidth: 'none' }}>
-        {habits.map((habit) => (
-          <HabitCard
-            key={habit.id}
-            habit={habit}
-            logs={logs.filter((l) => l.habit_id === habit.id)}
-            onToggle={toggleHabit}
-            completedToday={logs.some((l) => l.habit_id === habit.id && l.logged_date === today && l.completed)}
-          />
-        ))}
-
-        {/* Add habit button */}
-        <div style={{
-          border: '1px dashed var(--border2)', borderRadius: 12,
-          padding: '16px', textAlign: 'center',
-          cursor: 'pointer', color: 'var(--text3)',
-          fontSize: 12, fontFamily: 'var(--font-mono)',
-        }}>
-          + Add habit
-        </div>
-      </div>
-
-      {/* Universal input */}
-      <div style={{ padding: '8px 16px 14px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
-        <UniversalInput
-          placeholder="Log a habit or ask about your streaks…"
-          onSubmit={handleInput}
-        />
-      </div>
-    </div>
+      <DecompModal
+        open={decompOpen}
+        onClose={() => setDecompOpen(false)}
+        onConfirm={handleGoalCreated}
+      />
+    </main>
   )
 }

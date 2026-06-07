@@ -1,13 +1,7 @@
 import type { Metadata } from 'next'
-import { Syne, DM_Mono } from 'next/font/google'
+import { DM_Mono } from 'next/font/google'
+import { ServiceWorkerRegistration } from '@/components/ServiceWorkerRegistration'
 import './globals.css'
-
-const syne = Syne({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800'],
-  variable: '--font-syne',
-  display: 'swap',
-})
 
 const dmMono = DM_Mono({
   subsets: ['latin'],
@@ -28,21 +22,16 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className={`${syne.variable} ${dmMono.variable}`}>
-      <body suppressHydrationWarning>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              if ('serviceWorker' in navigator) {
-                window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js').catch(function(err) {
-                    console.error('SW registration failed:', err);
-                  });
-                });
-              }
-            `,
-          }}
+    <html lang="en" className={dmMono.variable}>
+      <head>
+        <link rel="preconnect" href="https://api.fontshare.com" crossOrigin="anonymous" />
+        <link
+          href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap"
+          rel="stylesheet"
         />
+      </head>
+      <body suppressHydrationWarning>
+        <ServiceWorkerRegistration />
         {children}
       </body>
     </html>

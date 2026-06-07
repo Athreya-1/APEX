@@ -1,10 +1,12 @@
 import { generatePlan } from '@/lib/planning/engine'
+import { buildEnergyWindow } from '@/lib/planning/energy-window'
 import type { PlanRequest } from '@/lib/planning/engine-types'
 
 const W = { windowStart: '2026-06-01T08:00:00.000Z', windowEnd: '2026-06-01T22:00:00.000Z' }
 const req: PlanRequest = {
   ...W, sessionMode: '90_20', workLifeDial: 0.5, workHourCap: 8,
   minChunkMinutes: 60, maxConsecutiveHeavy: 4,
+  energyWindow: buildEnergyWindow(W.windowStart, '09:00', '12:00'),
   skeleton: [
     { id: 'lunch', start: '2026-06-01T12:00:00.000Z', end: '2026-06-01T12:45:00.000Z', state: 'meal', label: 'Lunch' },
     { id: 'class', start: '2026-06-01T15:00:00.000Z', end: '2026-06-01T16:00:00.000Z', state: 'fixed', label: 'Lecture' },

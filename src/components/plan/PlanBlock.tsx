@@ -8,84 +8,117 @@ interface PlanBlockProps {
   onCheckin?: (blockId: string) => void
 }
 
-function getBlockStyle(type: BlockType): { bg: string; border: string; stripe: string } {
-  switch (type) {
-    case 'deep_work':
-    case 'entrepreneur':
-      return { bg: '#1e1a12', border: '#2e260f', stripe: 'var(--amber)' }
-    case 'class':
-      return { bg: '#121a20', border: '#1a2e3a', stripe: 'var(--blue)' }
-    case 'meal':
-      return { bg: '#131a12', border: '#1e2e1a', stripe: 'var(--green)' }
-    case 'cmr':
-      return { bg: '#1a1220', border: '#2a1a30', stripe: 'var(--pink)' }
-    case 'break':
-      return { bg: 'var(--bg2)', border: 'var(--border)', stripe: 'var(--bg4)' }
-    default:
-      return { bg: 'var(--bg2)', border: 'var(--border)', stripe: 'var(--border2)' }
-  }
+const ACCENT: Record<BlockType | string, string> = {
+  deep_work: 'var(--amber)',
+  entrepreneur: 'var(--amber-soft)',
+  class: 'var(--blue)',
+  meal: 'var(--green)',
+  gym: 'var(--violet)',
+  cmr: 'var(--pink)',
+  creative: 'var(--amber-soft)',
+  break: 'var(--neutral, #6f6d65)',
+  routine: 'var(--neutral, #6f6d65)',
+  sleep: 'var(--neutral, #6f6d65)',
+  admin: 'var(--blue)',
+  custom: 'var(--neutral, #6f6d65)',
 }
 
-function getBadge(block: PlanBlock, isCurrent: boolean): { label: string; bg: string; color: string } | null {
-  if (block.status === 'done') return { label: 'DONE', bg: 'var(--bg4)', color: 'var(--text3)' }
-  if (isCurrent) return { label: 'NOW', bg: 'var(--amber)', color: '#000' }
-  if (block.block_type === 'deep_work' || block.block_type === 'entrepreneur') {
-    return { label: 'DEEP', bg: 'var(--amber-dim)', color: 'var(--amber)' }
-  }
-  if (block.block_type === 'class') return { label: 'CLASS', bg: '#0d1e2e', color: 'var(--blue)' }
-  return null
-}
+const HABIT_REPEAT_ICON = (
+  <svg className="rep" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9}>
+    <path d="M17 2l4 4-4 4M21 6H7a4 4 0 00-4 4v1M7 22l-4-4 4-4M3 18h14a4 4 0 004-4v-1" />
+  </svg>
+)
 
 export function PlanBlock({ block, isCurrent, onCheckin }: PlanBlockProps) {
-  const styles = getBlockStyle(block.block_type)
-  const badge = getBadge(block, isCurrent)
+  const accent = ACCENT[block.block_type] ?? 'var(--neutral, #6f6d65)'
   const isDone = block.status === 'done'
   const durationMins = differenceInMinutes(new Date(block.end_time), new Date(block.start_time))
+  const isCompact = durationMins <= 25
+  const isHabit = !block.task_id && (block.block_type === 'gym' || block.block_type === 'routine')
+
+  const isMuted = block.block_type === 'break' || block.block_type === 'routine' || block.block_type === 'sleep'
 
   return (
     <div
       role="article"
+      className={`plan-block plan-block--${block.block_type}${isHabit ? ' is-habit' : ''}`}
       onClick={() => onCheckin?.(block.id)}
       style={{
-        flex: 1,
-        borderRadius: 10,
-        padding: '9px 11px',
+        width: '100%',
+        height: '100%',
+        borderRadius: 13,
+        padding: isCompact ? '5px 14px' : '9px 14px',
         position: 'relative',
         overflow: 'hidden',
         cursor: 'pointer',
-        transition: 'opacity .15s',
-        background: styles.bg,
-        border: `1px solid ${styles.border}`,
-        opacity: isDone ? 0.4 : 1,
-        boxShadow: isCurrent ? '0 0 0 1px var(--amber)' : 'none',
+        background: isCurrent
+          ? `linear-gradient(180deg, rgba(245,166,35,0.12), rgba(245,166,35,0.03))`
+          : 'linear-gradient(180deg, var(--surface), var(--bg2))',
+        border: isCurrent
+          ? '1px solid rgba(245,166,35,0.38)'
+          : '1px solid var(--border)',
+        boxShadow: '0 1px 0 var(--border-lit) inset, 0 6px 18px rgba(0,0,0,.26)',
+        opacity: isDone ? 0.42 : 1,
+        transition: 'border-color .25s, box-shadow .2s',
       }}
     >
-      {/* Left stripe */}
-      <div style={{
-        position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
-        borderRadius: '2px 0 0 2px', background: styles.stripe,
-      }} />
+      {/* Content */}
+      <div style={{ marginLeft: 11, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, position: 'relative', zIndex: 2 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{
+            fontWeight: 700, fontSize: isCompact ? 13 : 14.5, letterSpacing: '-.02em',
+            display: 'flex', alignItems: 'baseline', gap: 8, overflow: 'hidden',
+          }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 400, fontSize: 11, color: 'var(--text3)', flexShrink: 0 }}>
+              {format(new Date(block.start_time), 'h:mm a')}
+            </span>
+            <span style={{
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              color: isMuted ? 'var(--text2)' : 'var(--text)',
+              textDecoration: isDone ? 'line-through' : 'none',
+              textDecorationColor: 'var(--text3)',
+            }}>
+              {block.label ?? block.block_type.replace(/_/g, ' ')}
+            </span>
+          </div>
+          {!isCompact && block.description && (
+            <div style={{ color: 'var(--text2)', fontSize: 12.5, marginTop: 2, fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {block.description}
+            </div>
+          )}
+        </div>
 
-      <div style={{ marginLeft: 8 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', letterSpacing: '-.01em' }}>
-          {block.label ?? block.block_type}
-        </div>
-        <div style={{ fontSize: 10, color: 'var(--text2)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
-          {format(new Date(block.start_time), 'h:mm')}–{format(new Date(block.end_time), 'h:mma')} · {durationMins}m
-        </div>
+        {/* Badge */}
+        {isCurrent ? (
+          <span style={{
+            fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '.08em',
+            textTransform: 'uppercase', padding: '3px 8px', borderRadius: 7,
+            color: accent, background: `color-mix(in srgb, ${accent} 14%, transparent)`,
+            border: `1px solid color-mix(in srgb, ${accent} 24%, transparent)`,
+            flexShrink: 0,
+          }}>now</span>
+        ) : isHabit ? (
+          <span className="habit-badge">
+            {HABIT_REPEAT_ICON}
+            habit
+          </span>
+        ) : block.task_id ? (
+          <span className="plan-open-ic" style={{ color: 'var(--text3)', display: 'flex', flexShrink: 0 }}>
+            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+          </span>
+        ) : null}
       </div>
 
-      {badge && (
+      {/* Elapsed fill for current block */}
+      {isCurrent && (
         <div style={{
-          position: 'absolute', right: 8, top: 8,
-          fontSize: 9, fontFamily: 'var(--font-mono)',
-          padding: '2px 6px', borderRadius: 3,
-          textTransform: 'uppercase', letterSpacing: '.06em',
-          background: badge.bg, color: badge.color,
-          fontWeight: badge.label === 'NOW' ? 500 : 400,
-        }}>
-          {badge.label}
-        </div>
+          position: 'absolute', left: 0, right: 0, top: 0,
+          height: `${Math.max(0, Math.min(100, (Date.now() - new Date(block.start_time).getTime()) / (new Date(block.end_time).getTime() - new Date(block.start_time).getTime()) * 100))}%`,
+          background: 'linear-gradient(180deg, rgba(245,166,35,.18), rgba(245,166,35,.05))',
+          pointerEvents: 'none', zIndex: 1,
+        }} />
       )}
     </div>
   )

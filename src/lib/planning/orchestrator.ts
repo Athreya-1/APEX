@@ -2,6 +2,7 @@ import type {
   CourseSession, Guardrail, Habit, HabitLog, Task, TaskTypeTag, UserPreferences, CognitiveClass,
 } from '@/types'
 import type { GCalEvent } from '@/lib/calendar/gcal'
+import { buildEnergyWindow } from './energy-window'
 import { guardrailsToSkeleton } from './guardrails'
 import { assignImportance } from './eisenhower'
 import { computeUrgency, orderByUrgency, type UrgencyTask } from './urgency'
@@ -52,15 +53,22 @@ export function atPlanTime(planDate: string, hhmm: string): string {
 }
 
 export function gcalEventsToSkeleton(events: GCalEvent[]): SkeletonItem[] {
-  return events
-    .filter((e) => !e.apex_block_id)
-    .map((e) => ({
+  const result: SkeletonItem[] = []
+  for (const e of events) {
+    if (e.apex_block_id) continue
+    if (!e.start || !e.end) continue
+    const start = new Date(e.start)
+    const end = new Date(e.end)
+    if (end <= start) continue // skip midnight-spanning events
+    result.push({
       id: `gcal-${e.id}`,
       start: e.start,
       end: e.end,
       state: 'fixed' as const,
       label: e.title,
-    }))
+    })
+  }
+  return result
 }
 
 export function courseSessionsToSkeleton(sessions: CourseSession[], planDate: string): SkeletonItem[] {
@@ -111,7 +119,7 @@ export function isHabitDueToday(
 }
 
 export function habitsToEngine(
-  habits: Habit[], habitLogs: HabitLog[], planDate: string, gymCascade: number[],
+  habits: Habit[], habitLogs: HabitLog[], planDate: string,
 ): EngineHabit[] {
   const weekStart = new Date(`${planDate}T00:00:00.000Z`)
   weekStart.setUTCDate(weekStart.getUTCDate() - planDayOfWeek(planDate))
@@ -126,16 +134,23 @@ export function habitsToEngine(
       }).length
       return isHabitDueToday(h, planDate, weekCompletions, completedToday)
     })
-    .map((h) => ({
-      id: h.id,
-      label: h.name,
-      mode: h.mode,
-      durationMins: h.duration_mins ?? 30,
-      cognitiveClass: (h.cognitive_class as CognitiveClass) || 'physical',
-      cascade: h.name.toLowerCase().includes('gym') ? gymCascade : undefined,
-      timeRanges: h.time_ranges ?? undefined,
-      goalId: h.goal_id,
-    }))
+    .map((h) => {
+      const duration = h.duration_mins ?? 30
+      const cascade =
+        h.mode === 'time_blocked' && duration >= 60
+          ? [duration, Math.max(30, duration - 30), 30]
+          : undefined
+      return {
+        id: h.id,
+        label: h.name,
+        mode: h.mode,
+        durationMins: duration,
+        cognitiveClass: (h.cognitive_class as CognitiveClass) || 'physical',
+        cascade,
+        timeRanges: h.time_ranges ?? undefined,
+        goalId: h.goal_id,
+      }
+    })
 }
 
 export function tasksToEngine(
@@ -194,7 +209,7 @@ export function buildPlanRequest(input: BuildPlanRequestInput): PlanRequest {
     ...mealSkeletonFromPrefs(prefs, planDate),
   ]
 
-  const engineHabits = habitsToEngine(habits, habitLogs, planDate, prefs.gym_duration_cascade ?? [90, 60, 30])
+  const engineHabits = habitsToEngine(habits, habitLogs, planDate)
   const engineTasks = tasksToEngine(tasks, planDate, now, windowStart, windowEnd)
 
   return {
@@ -205,6 +220,7 @@ export function buildPlanRequest(input: BuildPlanRequestInput): PlanRequest {
     workHourCap: prefs.daily_work_hour_cap ?? 8,
     minChunkMinutes: prefs.min_chunk_minutes ?? 60,
     maxConsecutiveHeavy: prefs.max_consecutive_heavy ?? 4,
+    energyWindow: buildEnergyWindow(windowStart, prefs.peak_start ?? '09:00', prefs.peak_end ?? '12:00'),
     skeleton,
     tasks: engineTasks,
     habits: engineHabits.filter((h) => h.mode === 'time_blocked'),

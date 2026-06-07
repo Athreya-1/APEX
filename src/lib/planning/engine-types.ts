@@ -1,6 +1,13 @@
 import type { CognitiveClass, SlotState } from '@/types'
 import type { SessionMode } from './timeline'
 
+export interface EnergyWindow {
+  peakStartMins: number
+  peakEndMins: number
+  troughStartMins: number
+  troughEndMins: number
+}
+
 export interface SkeletonItem {
   id: string
   start: string            // ISO
@@ -40,6 +47,7 @@ export interface PlanRequest {
   workHourCap: number              // hours
   minChunkMinutes: number
   maxConsecutiveHeavy: number
+  energyWindow: EnergyWindow
   skeleton: SkeletonItem[]
   tasks: EngineTask[]              // already ordered by caller (orderByUrgency)
   habits: EngineHabit[]            // already filtered to "due today"

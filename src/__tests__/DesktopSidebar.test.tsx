@@ -2,6 +2,8 @@ import { render, screen } from '@testing-library/react'
 
 jest.mock('next/navigation', () => ({
   usePathname: jest.fn(() => '/home'),
+  useRouter: jest.fn(() => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() })),
+  useSearchParams: jest.fn(() => new URLSearchParams('')),
 }))
 
 jest.mock('next/link', () => {
@@ -26,14 +28,13 @@ describe('DesktopSidebar', () => {
   it('renders APEX wordmark', async () => {
     const { DesktopSidebar } = await import('@/components/layout/DesktopSidebar')
     render(<DesktopSidebar />)
-    expect(screen.getByText('APEX')).toBeInTheDocument()
+    expect(screen.getByText((_, el) => el?.textContent === 'APEX')).toBeInTheDocument()
   })
 
-  it('renders only V1 navigation labels', async () => {
+  it('renders mockup navigation labels', async () => {
     const { DesktopSidebar } = await import('@/components/layout/DesktopSidebar')
     render(<DesktopSidebar />)
-    const expectedLabels = ['Home', 'Daily Plan', 'Task Manager', 'Habit Tracker', 'Settings']
-    expectedLabels.forEach((label) => {
+    ;['Home', 'Planner', 'To-Do', 'Habits', 'Settings'].forEach((label) => {
       expect(screen.getByText(label)).toBeInTheDocument()
     })
   })
@@ -41,22 +42,22 @@ describe('DesktopSidebar', () => {
   it('hides features deferred from V1', async () => {
     const { DesktopSidebar } = await import('@/components/layout/DesktopSidebar')
     render(<DesktopSidebar />)
-    ;['Notepads', 'Exam Plans', 'Knowledge Bank'].forEach((label) => {
+    ;['Notepads', 'Exam Plans', 'Knowledge Bank', 'Daily Plan', 'Task Manager'].forEach((label) => {
       expect(screen.queryByText(label)).not.toBeInTheDocument()
     })
   })
 
-  it('applies amber color to active link', async () => {
+  it('marks active route with active class', async () => {
     const { DesktopSidebar } = await import('@/components/layout/DesktopSidebar')
     render(<DesktopSidebar />)
     const homeLink = screen.getByText('Home').closest('a')!
-    expect(homeLink).toHaveStyle({ color: 'var(--amber)' })
+    expect(homeLink.className).toContain('active')
   })
 
-  it('applies muted color to inactive links', async () => {
+  it('does not mark inactive routes as active', async () => {
     const { DesktopSidebar } = await import('@/components/layout/DesktopSidebar')
     render(<DesktopSidebar />)
     const settingsLink = screen.getByText('Settings').closest('a')!
-    expect(settingsLink).toHaveStyle({ color: 'var(--text2)' })
+    expect(settingsLink.className).not.toContain('active')
   })
 })

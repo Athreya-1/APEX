@@ -1,7 +1,7 @@
 import type { CognitiveClass, SlotState, TimelineSlot } from '@/types'
 import { buildTimeline, freeRuns, lockRange } from './timeline'
 import type {
-  EngineBlock, EngineHabit, EngineTask, PlanRequest, PlanResult, PlanWarning, ReasoningNote, SkeletonItem,
+  EngineBlock, EngineHabit, EngineTask, EnergyWindow, PlanRequest, PlanResult, PlanWarning, ReasoningNote, SkeletonItem,
 } from './engine-types'
 
 import { SLOT_MINUTES } from './timeline'
@@ -101,9 +101,9 @@ export function arbitrate(request: PlanRequest, freeMins: number): Budget {
 
 export type EnergyZone = 'peak' | 'trough' | 'other'
 
-export function classifyEnergy(offsetMins: number): EnergyZone {
-  if (offsetMins >= 120 && offsetMins <= 300) return 'peak'
-  if (offsetMins >= 360 && offsetMins <= 540) return 'trough'
+export function classifyEnergy(offsetMins: number, window: EnergyWindow): EnergyZone {
+  if (offsetMins >= window.peakStartMins && offsetMins <= window.peakEndMins) return 'peak'
+  if (offsetMins >= window.troughStartMins && offsetMins <= window.troughEndMins) return 'trough'
   return 'other'
 }
 
@@ -182,8 +182,8 @@ function placeOneTask(
     if (usable.length === 0) break
 
     usable.sort((a, b) => {
-      const sa = suitability(pref, classifyEnergy(a.offsetMins))
-      const sb = suitability(pref, classifyEnergy(b.offsetMins))
+      const sa = suitability(pref, classifyEnergy(a.offsetMins, request.energyWindow))
+      const sb = suitability(pref, classifyEnergy(b.offsetMins, request.energyWindow))
       if (sa !== sb) return sa - sb
       if (b.slotCount !== a.slotCount) return b.slotCount - a.slotCount
       return a.startIndex - b.startIndex
@@ -193,7 +193,7 @@ function placeOneTask(
     // Start within the run at the preferred energy zone if there is room for a real chunk there.
     let startIdx = run.startIndex
     for (let k = run.startIndex; k < run.endIndexExclusive; k++) {
-      if (classifyEnergy(slotOffsetMins(timeline, k, wakeMs)) === pref) {
+      if (classifyEnergy(slotOffsetMins(timeline, k, wakeMs), request.energyWindow) === pref) {
         if (run.endIndexExclusive - k >= minChunkSlots) startIdx = k
         break
       }
