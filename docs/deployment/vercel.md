@@ -62,3 +62,8 @@ Manual checks:
 ## Branch note
 
 Vercel deploys from `main` by default. Ensure build fixes and env var docs are merged to `main` before expecting production to match your latest local work on feature branches.
+
+## Repository access
+
+<!-- Added 2025-06-21: repo made public so Vercel can connect (was private at 4afd13a "Vercel deployment readiness"). -->
+`Athreya-1/APEX` is public. If Vercel still shows no deploys, reconnect the Git integration under **Project → Settings → Git** and confirm the production branch is `main`.
