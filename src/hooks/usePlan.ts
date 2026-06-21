@@ -47,7 +47,11 @@ export function usePlan(userId: string | undefined, planDate: string) {
   }, [fetchPlan])
 
   const generatePlan = useCallback(
-    async (sleepTime: string, sessionMode: '90_20' | '50_10', constraints?: unknown) => {
+    async (
+      sleepTime: string,
+      sessionMode: '90_20' | '50_10',
+      options?: { workLifeDial?: number },
+    ) => {
       if (!userId) return
       setGenerating(true)
       setError(null)
@@ -55,7 +59,12 @@ export function usePlan(userId: string | undefined, planDate: string) {
         const res = await fetch('/api/plan/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ plan_date: planDate, sleep_time: sleepTime, session_mode: sessionMode, constraints }),
+          body: JSON.stringify({
+            plan_date: planDate,
+            sleep_time: sleepTime,
+            session_mode: sessionMode,
+            work_life_dial: options?.workLifeDial,
+          }),
         })
         if (!res.ok) {
           const text = await res.text().catch(() => '')
@@ -76,6 +85,34 @@ export function usePlan(userId: string | undefined, planDate: string) {
     },
     [userId, planDate, fetchPlan, setGenerating, setError],
   )
+
+  const replanDay = useCallback(async () => {
+    if (!userId) return
+    setGenerating(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/plan/replan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan_date: planDate, from_time: new Date().toISOString() }),
+      })
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        setError(`Replan failed (${res.status})${text ? ': ' + text.slice(0, 120) : ''}`)
+        return
+      }
+      const data = await res.json().catch(() => ({}))
+      if (data.error) {
+        setError(data.error)
+      } else {
+        await fetchPlan()
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to replan')
+    } finally {
+      setGenerating(false)
+    }
+  }, [userId, planDate, fetchPlan, setGenerating, setError])
 
   const handleCheckin = useCallback(
     async (blockId: string, choice: 'done' | '+15' | '+30' | '+45' | '+60' | 'custom', extraMins?: number) => {
@@ -115,6 +152,6 @@ export function usePlan(userId: string | undefined, planDate: string) {
 
   return {
     plan, blocks, isLoading, isGenerating, activeCheckinBlockId, error,
-    generatePlan, handleCheckin, refetch: fetchPlan,
+    generatePlan, replanDay, handleCheckin, refetch: fetchPlan,
   }
 }

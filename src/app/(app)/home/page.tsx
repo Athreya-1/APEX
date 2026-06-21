@@ -1,8 +1,9 @@
 'use client'
 import { useEffect, useState, useCallback, type CSSProperties } from 'react'
-import { format } from 'date-fns'
+import { format, subDays } from 'date-fns'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { getStreakDots } from '@/components/habits/HabitCard'
 import type { Task, Habit, HabitLog, PlanBlock } from '@/types'
 
 function getGreeting(): string {
@@ -51,7 +52,7 @@ const BLOCK_COLOR: Record<string, string> = {
 
 export default function HomePage() {
   const supabase = createClient()
-  const [userName, setUserName] = useState('Athreya')
+  const [userName, setUserName] = useState('there')
   const [tasks, setTasks] = useState<Task[]>([])
   const [habits, setHabits] = useState<Habit[]>([])
   const [habitLogs, setHabitLogs] = useState<HabitLog[]>([])
@@ -72,10 +73,11 @@ export default function HomePage() {
   useEffect(() => {
     if (!userId) return
     const today = format(new Date(), 'yyyy-MM-dd')
+    const weekAgo = format(subDays(new Date(), 6), 'yyyy-MM-dd')
     Promise.all([
       supabase.from('tasks').select('*').eq('user_id', userId).neq('status', 'done').order('urgency_score', { ascending: false }).limit(20),
       supabase.from('habits').select('*').eq('user_id', userId).eq('is_active', true),
-      supabase.from('habit_logs').select('*').eq('user_id', userId).eq('logged_date', today),
+      supabase.from('habit_logs').select('*').eq('user_id', userId).gte('logged_date', weekAgo),
       // Fetch today's plan blocks for the glance view
       supabase.from('daily_plans').select('id').eq('user_id', userId).eq('plan_date', today).single()
         .then(async ({ data: plan }) => {
@@ -256,6 +258,7 @@ export default function HomePage() {
           )}
           {habits.map((habit) => {
             const done = habitLogs.some((l) => l.habit_id === habit.id && l.logged_date === today && l.completed)
+            const dots = getStreakDots(habit.id, habitLogs, 7)
             return (
               <div key={habit.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0' }}>
                 <span style={{ width: 30, height: 30, borderRadius: 9, display: 'grid', placeItems: 'center', fontSize: 15, background: 'var(--surface2)', border: '1px solid var(--border)' }}>
@@ -266,8 +269,8 @@ export default function HomePage() {
                   <div style={{ fontSize: 12, color: 'var(--text2)' }}>{habit.target_frequency || 'daily'}</div>
                 </div>
                 <div style={{ display: 'flex', gap: 3, marginLeft: 'auto' }}>
-                  {[...Array(7)].map((_, i) => (
-                    <i key={i} style={{ width: 7, height: 7, borderRadius: '50%', background: i < 3 ? 'var(--green)' : 'var(--surface2)', display: 'block' }} />
+                  {dots.map((on, i) => (
+                    <i key={i} style={{ width: 7, height: 7, borderRadius: '50%', background: on ? 'var(--green)' : 'var(--surface2)', display: 'block' }} />
                   ))}
                 </div>
                 <button

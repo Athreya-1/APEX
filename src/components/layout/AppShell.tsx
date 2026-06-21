@@ -7,7 +7,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="apex-ambient" aria-hidden />
       <div className="apex-app">
         <DesktopSidebar />
-        <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        <div className="apex-app-content" style={{ minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           {children}
         </div>
       </div>

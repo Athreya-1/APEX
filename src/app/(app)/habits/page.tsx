@@ -6,6 +6,7 @@ import { useHabits } from '@/hooks/useHabits'
 import { WeekStrip, WeekLegend, buildTrackItems } from '@/components/habits/WeekStrip'
 import { HabitCard } from '@/components/habits/HabitCard'
 import { DecompModal } from '@/components/habits/DecompModal'
+import { HabitsInputBar } from '@/components/habits/HabitsInputBar'
 
 const GOAL_COLORS = ['var(--amber)', 'var(--violet)', 'var(--blue)', 'var(--green)', 'var(--pink)']
 const HABIT_COLORS = ['var(--blue)', 'var(--green)', 'var(--pink)', 'var(--amber)', 'var(--violet)']
@@ -14,6 +15,7 @@ export default function HabitsPage() {
   const supabase = createClient()
   const [userId, setUserId] = useState<string | undefined>()
   const [decompOpen, setDecompOpen] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
   const today = format(new Date(), 'yyyy-MM-dd')
 
   useEffect(() => {
@@ -23,7 +25,69 @@ export default function HabitsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const { habits, logs, goals, isLoading, toggleHabit, createGoalWithHabits } = useHabits(userId)
+  const { habits, logs, goals, isLoading, toggleHabit, addHabit, createGoalWithHabits, refresh } = useHabits(userId)
+
+  const showToast = useCallback((msg: string) => {
+    setToast(msg)
+    setTimeout(() => setToast(null), 3500)
+  }, [])
+
+  const handleInputSubmit = useCallback(async (text: string) => {
+    const trimmed = text.trim()
+    if (!trimmed) return
+
+    if (/^(new goal|goal:?\s)/i.test(trimmed)) {
+      setDecompOpen(true)
+      return
+    }
+
+    const exactMatch = habits.find((h) => h.name.toLowerCase() === trimmed.toLowerCase())
+    const fuzzyMatch = habits.find((h) => h.name.toLowerCase().includes(trimmed.toLowerCase()))
+    const habitMatch = exactMatch ?? (trimmed.length >= 3 ? fuzzyMatch : undefined)
+
+    if (habitMatch) {
+      const done = logs.some((l) => l.habit_id === habitMatch.id && l.logged_date === today && l.completed)
+      await toggleHabit(habitMatch.id, !done)
+      showToast(done ? `Unmarked ${habitMatch.name}` : `Logged ${habitMatch.name}`)
+      return
+    }
+
+    if (!trimmed.includes('?') && trimmed.length <= 80) {
+      await addHabit({ name: trimmed })
+      showToast(`Added habit: ${trimmed}`)
+      return
+    }
+
+    try {
+      const res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          input: trimmed,
+          context: { habits: habits.map((h) => h.name) },
+        }),
+      })
+      const data = await res.json()
+      if (data.action === 'add_habit_log') {
+        await refresh()
+        showToast(`Logged ${(data.result as { habit_name?: string })?.habit_name ?? 'habit'}`)
+        return
+      }
+      if (data.action === 'clarify' && data.question) {
+        showToast(data.question)
+        return
+      }
+      if (data.action === 'error') {
+        showToast(typeof data.result === 'string' ? data.result : 'Could not process that request')
+        return
+      }
+      showToast('Done')
+      await refresh()
+    } catch {
+      await addHabit({ name: trimmed })
+      showToast(`Added habit: ${trimmed}`)
+    }
+  }, [habits, logs, today, toggleHabit, addHabit, refresh, showToast])
 
   const overallStreak = useMemo(() => {
     let streak = 0
@@ -142,6 +206,14 @@ export default function HabitsPage() {
         onClose={() => setDecompOpen(false)}
         onConfirm={handleGoalCreated}
       />
+
+      <HabitsInputBar onSubmit={handleInputSubmit} loading={isLoading} />
+
+      {toast && (
+        <div className={`apex-toast show`} style={{ bottom: 100 }}>
+          {toast}
+        </div>
+      )}
     </main>
   )
 }

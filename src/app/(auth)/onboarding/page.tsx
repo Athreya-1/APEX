@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { syncNoWorkGuardrails } from '@/lib/guardrails/sync'
 import {
   EST_STOPS,
   formatEstimateHours,
@@ -277,7 +278,7 @@ export default function OnboardingPage() {
         const secure =
           window.location.protocol === 'https:' ? '; Secure' : ''
         document.cookie = `apex_onboarded=true; path=/; max-age=31536000; SameSite=Lax${secure}`
-        router.push('/home')
+        router.push('/plan')
       }
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -356,7 +357,12 @@ export default function OnboardingPage() {
         .eq('id', user.id)
         .single()
       if (existingProfile?.onboarding_complete) {
-        router.push('/home')
+        const secure =
+          typeof window !== 'undefined' && window.location.protocol === 'https:'
+            ? '; Secure'
+            : ''
+        document.cookie = `apex_onboarded=true; path=/; max-age=31536000; SameSite=Lax${secure}`
+        router.push('/plan')
         return
       }
 
@@ -408,6 +414,8 @@ export default function OnboardingPage() {
       )
       if (prefErr) throw new Error(prefErr.message)
 
+      await syncNoWorkGuardrails(supabase, user.id, data.wake_time, '22:00')
+
       // Save courses — skip rows that already exist (guards double-submit / re-runs)
       const valid = data.courses.filter((c) => c.name.trim())
       for (const c of valid) {
@@ -420,6 +428,7 @@ export default function OnboardingPage() {
           color: c.color,
           is_active: true,
           canvas_course_id: null,
+          difficulty_multiplier: Math.round((c.difficulty / 3) * 100) / 100,
         })
         if (cErr) throw new Error(`Failed to save "${c.name}": ${cErr.message}`)
         existingKeys.add(key)
@@ -474,7 +483,7 @@ export default function OnboardingPage() {
           ? '; Secure'
           : ''
       document.cookie = `apex_onboarded=true; path=/; max-age=31536000; SameSite=Lax${secure}`
-      router.push('/home')
+      router.push('/plan')
     } catch (err) {
       setSaveError(
         err instanceof Error ? err.message : 'Something went wrong.',

@@ -11,6 +11,7 @@ interface GenerateRequestBody {
   plan_date: string
   sleep_time: string
   session_mode?: '90_20' | '50_10'
+  work_life_dial?: number
   constraints?: Record<string, unknown>
 }
 
@@ -38,7 +39,7 @@ export async function POST(request: Request) {
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body: GenerateRequestBody = await request.json()
-  const { plan_date, sleep_time, session_mode = '90_20' } = body
+  const { plan_date, sleep_time, session_mode = '90_20', work_life_dial } = body
   const now = new Date().toISOString()
 
   const [
@@ -63,6 +64,10 @@ export async function POST(request: Request) {
     return Response.json({ error: 'User preferences not found' }, { status: 400 })
   }
 
+  const effectivePrefs = work_life_dial != null
+    ? { ...prefs, work_life_dial }
+    : prefs
+
   const tokenRefresh = async (newToken: string, newRefresh: string | null) => {
     await supabase.from('users').update({
       google_calendar_token: newToken,
@@ -73,7 +78,7 @@ export async function POST(request: Request) {
   const courseById = new Map((courses ?? []).map((c: Course) => [c.id, c]))
   const paddedTasks = (tasks ?? []).map((t: Task) => taskToPadded(t, t.course_id ? courseById.get(t.course_id) : undefined))
 
-  const prefWake = prefs.wake_time_default ?? '07:30'
+  const prefWake = effectivePrefs.wake_time_default ?? '07:30'
   const [wh, wm] = prefWake.split(':').map(Number)
   const planDay = new Date(plan_date + 'T00:00:00')
   const wakeDate = new Date(planDay)
@@ -104,7 +109,7 @@ export async function POST(request: Request) {
     windowEnd,
     now,
     sessionMode: session_mode,
-    prefs,
+    prefs: effectivePrefs,
     tasks: paddedTasks,
     habits: habits ?? [],
     habitLogs: habitLogs ?? [],

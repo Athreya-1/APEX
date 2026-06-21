@@ -4,6 +4,8 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
+// V1 nav: Home, Planner, To-Do, Habits (+ Settings). Legacy routes (/exams, /knowledge,
+// /notes, /review) remain reachable by URL but are intentionally excluded from nav.
 const NAV = [
   { href: '/home', label: 'Home', icon: 'M3 11l9-8 9 8M5 10v10h14V10' },
   { href: '/plan', label: 'Planner', icon: 'RECT' },

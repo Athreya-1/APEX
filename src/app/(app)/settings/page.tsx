@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useCourses } from '@/hooks/useCourses'
+import { noWorkTimesFromGuardrails, syncNoWorkGuardrails } from '@/lib/guardrails/sync'
 
 interface Preferences {
   wake_time_default: string
@@ -70,6 +71,56 @@ const DEFAULT_PREFS: Preferences = {
   nightly_checkin_time: '21:00',
   habit_reminders: true,
   plan_ready_ping: true,
+}
+
+const LOCAL_ONLY_PREFS = new Set<keyof Preferences>([
+  'learn_from_behavior',
+  'focus_check',
+  'nightly_checkin_time',
+  'habit_reminders',
+  'plan_ready_ping',
+])
+
+function prefsFromDb(row: Record<string, unknown>): Preferences {
+  const dialRaw = row.work_life_dial
+  const dialPct = typeof dialRaw === 'number'
+    ? (dialRaw <= 1 ? Math.round(dialRaw * 100) : Math.round(dialRaw))
+    : DEFAULT_PREFS.work_life_dial
+  const chunkMins = typeof row.min_chunk_minutes === 'number' ? row.min_chunk_minutes : 60
+  return {
+    ...DEFAULT_PREFS,
+    ...(row as Partial<Preferences>),
+    work_life_dial: dialPct,
+    work_hour_cap: typeof row.daily_work_hour_cap === 'number' ? row.daily_work_hour_cap : DEFAULT_PREFS.work_hour_cap,
+    deep_work_streak: typeof row.max_consecutive_heavy === 'number' ? row.max_consecutive_heavy : DEFAULT_PREFS.deep_work_streak,
+    min_focus_block: `${chunkMins}m`,
+  }
+}
+
+function prefToDbPayload<K extends keyof Preferences>(key: K, value: Preferences[K]): Record<string, unknown> | null {
+  if (LOCAL_ONLY_PREFS.has(key)) return null
+  switch (key) {
+    case 'work_life_dial':
+      return { work_life_dial: (value as number) / 100 }
+    case 'work_hour_cap':
+      return { daily_work_hour_cap: value }
+    case 'deep_work_streak':
+      return { max_consecutive_heavy: value }
+    case 'min_focus_block':
+      return { min_chunk_minutes: parseInt(String(value), 10) || 60 }
+    case 'no_work_before':
+    case 'no_work_after':
+      return null
+    default:
+      return { [key]: value }
+  }
+}
+
+function dialAnchorLabel(value: number): string {
+  if (value > 85) return 'Grind'
+  if (value > 62) return 'Push'
+  if (value < 38) return 'Recover'
+  return 'Balanced'
 }
 
 const SECTIONS = [
@@ -195,6 +246,9 @@ export default function SettingsPage() {
   const [dinnerMins, setDinnerMins] = useState(60)
   const [activeSection, setActiveSection] = useState('profile')
   const [toastMsg, setToastMsg] = useState<string | null>(null)
+  const [addCourseOpen, setAddCourseOpen] = useState(false)
+  const [newCourseName, setNewCourseName] = useState('')
+  const [newCourseCode, setNewCourseCode] = useState('')
   const mainRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { courses: dbCourses, refresh: refreshCourses } = useCourses(userId)
@@ -216,13 +270,22 @@ export default function SettingsPage() {
         Promise.all([
           supabase.from('users').select('display_name,canvas_domain,canvas_api_token,google_calendar_token,email,timezone').eq('id', user.id).single(),
           supabase.from('user_preferences').select('*').eq('user_id', user.id).single(),
-        ]).then(([{ data: userData }, { data: prefsData }]) => {
+          supabase.from('guardrails').select('*').eq('user_id', user.id).eq('is_active', true),
+        ]).then(([{ data: userData }, { data: prefsData }, { data: guardrailData }]) => {
           if (userData) setProfile((p) => ({ ...p, ...userData }))
           if (prefsData) {
-            setPrefs((p) => ({ ...p, ...prefsData }))
+            setPrefs(prefsFromDb(prefsData))
             if (prefsData.sleep_buffer_hours) setSleepHours(prefsData.sleep_buffer_hours)
             if (prefsData.lunch_duration_mins) setLunchMins(prefsData.lunch_duration_mins)
             if (prefsData.dinner_duration_mins) setDinnerMins(prefsData.dinner_duration_mins)
+          }
+          if (guardrailData?.length) {
+            const { no_work_before, no_work_after } = noWorkTimesFromGuardrails(guardrailData)
+            setPrefs((p) => ({
+              ...p,
+              ...(no_work_before ? { no_work_before } : {}),
+              ...(no_work_after ? { no_work_after } : {}),
+            }))
           }
         })
       }
@@ -237,12 +300,22 @@ export default function SettingsPage() {
   }, [])
 
   const savePref = useCallback(<K extends keyof Preferences>(key: K, value: Preferences[K]) => {
-    setPrefs((p) => ({ ...p, [key]: value }))
-    if (userId) {
-      supabase.from('user_preferences').upsert({ user_id: userId, [key]: value }, { onConflict: 'user_id' }).then(() => showToast())
-    } else {
-      showToast()
-    }
+    setPrefs((p) => {
+      const next = { ...p, [key]: value }
+      if (userId) {
+        const payload = prefToDbPayload(key, value)
+        if (payload) {
+          supabase.from('user_preferences').upsert({ user_id: userId, ...payload }, { onConflict: 'user_id' }).then(() => showToast())
+        } else if (key === 'no_work_before' || key === 'no_work_after') {
+          syncNoWorkGuardrails(supabase, userId, next.no_work_before, next.no_work_after).then(() => showToast())
+        } else {
+          showToast()
+        }
+      } else {
+        showToast()
+      }
+      return next
+    })
   }, [userId, supabase, showToast])
 
   const saveProfile = useCallback(<K extends keyof UserProfile>(key: K, value: UserProfile[K]) => {
@@ -265,10 +338,37 @@ export default function SettingsPage() {
     }
   }, [userId, supabase, refreshCourses, showToast])
 
+  const handleAddCourse = useCallback(async () => {
+    const name = newCourseName.trim()
+    if (!name) return
+    if (!userId) {
+      showToast('Course added')
+      setAddCourseOpen(false)
+      return
+    }
+    const { error } = await supabase.from('courses').insert({
+      user_id: userId,
+      name,
+      code: newCourseCode.trim() || null,
+      color: 'var(--amber)',
+      is_active: true,
+      difficulty_multiplier: 1.0,
+    })
+    if (error) {
+      showToast(error.message)
+      return
+    }
+    await refreshCourses()
+    setNewCourseName('')
+    setNewCourseCode('')
+    setAddCourseOpen(false)
+    showToast('Course added')
+  }, [userId, newCourseName, newCourseCode, supabase, refreshCourses, showToast])
+
   const wakeFromBed = calcWakeFromBedtime(prefs.sleep_time_default, sleepHours)
   const streakFocus = prefs.deep_work_streak * 1.5
   const streakElapsed = Math.round((streakFocus + (prefs.deep_work_streak - 1) * (20 / 60)) * 10) / 10
-  const dialLabel = prefs.work_life_dial > 62 ? 'Push' : prefs.work_life_dial < 38 ? 'Recover' : 'Balanced'
+  const dialLabel = dialAnchorLabel(prefs.work_life_dial)
 
   useEffect(() => {
     const el = mainRef.current
@@ -436,9 +536,36 @@ export default function SettingsPage() {
                 </button>
               </div>
             ))}
-            <button type="button" className="settings-ghostbtn settings-addcourse" onClick={() => showToast('Course added')}>
-              + Add course or project
-            </button>
+            {addCourseOpen ? (
+              <div className="settings-courserow" style={{ flexWrap: 'wrap', gap: 10 }}>
+                <input
+                  type="text"
+                  className="settings-timefield"
+                  placeholder="Course or project name"
+                  value={newCourseName}
+                  onChange={(e) => setNewCourseName(e.target.value)}
+                  style={{ flex: '2 1 180px' }}
+                />
+                <input
+                  type="text"
+                  className="settings-timefield"
+                  placeholder="Code (optional)"
+                  value={newCourseCode}
+                  onChange={(e) => setNewCourseCode(e.target.value)}
+                  style={{ flex: '1 1 100px' }}
+                />
+                <button type="button" className="settings-ghostbtn" onClick={() => { void handleAddCourse() }}>
+                  Save
+                </button>
+                <button type="button" className="settings-ghostbtn" onClick={() => { setAddCourseOpen(false); setNewCourseName(''); setNewCourseCode('') }}>
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button type="button" className="settings-ghostbtn settings-addcourse" onClick={() => setAddCourseOpen(true)}>
+                + Add course or project
+              </button>
+            )}
           </SGroup>
 
           <SGroup id="learning" title="Adaptive learning" desc="APEX optimizes for what you actually do, not what you say. Keep these on to let it sharpen over time.">

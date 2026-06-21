@@ -5,7 +5,6 @@ import type { PlanBlock, BlockType } from '@/types'
 interface PlanBlockProps {
   block: PlanBlock
   isCurrent: boolean
-  onCheckin?: (blockId: string) => void
 }
 
 const ACCENT: Record<BlockType | string, string> = {
@@ -29,7 +28,7 @@ const HABIT_REPEAT_ICON = (
   </svg>
 )
 
-export function PlanBlock({ block, isCurrent, onCheckin }: PlanBlockProps) {
+export function PlanBlock({ block, isCurrent }: PlanBlockProps) {
   const accent = ACCENT[block.block_type] ?? 'var(--neutral, #6f6d65)'
   const isDone = block.status === 'done'
   const durationMins = differenceInMinutes(new Date(block.end_time), new Date(block.start_time))
@@ -42,7 +41,6 @@ export function PlanBlock({ block, isCurrent, onCheckin }: PlanBlockProps) {
     <div
       role="article"
       className={`plan-block plan-block--${block.block_type}${isHabit ? ' is-habit' : ''}`}
-      onClick={() => onCheckin?.(block.id)}
       style={{
         width: '100%',
         height: '100%',

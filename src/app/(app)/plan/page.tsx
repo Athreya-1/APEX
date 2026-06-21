@@ -14,10 +14,17 @@ function getGreeting(): string {
   return 'Good evening'
 }
 
+function dialAnchorLabel(value: number): string {
+  if (value > 85) return 'Grind'
+  if (value > 62) return 'Push'
+  if (value < 38) return 'Recover'
+  return 'Balanced'
+}
+
 export default function PlanPage() {
   const supabase = createClient()
   const [userId, setUserId] = useState<string | undefined>()
-  const [userName, setUserName] = useState('Athreya')
+  const [userName, setUserName] = useState('there')
   const [sleepTime, setSleepTime] = useState('23:00')
   const [sessionMode, setSessionMode] = useState<'90_20' | '50_10'>('90_20')
   const [dialValue, setDialValue] = useState(55)
@@ -25,16 +32,29 @@ export default function PlanPage() {
   const [toast, setToast] = useState<string | null>(null)
 
   const today = format(new Date(), 'yyyy-MM-dd')
-  const { plan: _plan, blocks, isLoading, isGenerating, activeCheckinBlockId, generatePlan, handleCheckin } = usePlan(userId, today)
+  const { plan, blocks, isLoading, isGenerating, activeCheckinBlockId, error, generatePlan, replanDay, handleCheckin } = usePlan(userId, today)
   const { setActiveCheckinBlockId } = usePlanStore()
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) {
-        setUserId(user.id)
-        supabase.from('users').select('display_name').eq('id', user.id).single()
-          .then(({ data }) => { if (data?.display_name) setUserName(data.display_name) })
-      }
+      if (!user) return
+      setUserId(user.id)
+      Promise.all([
+        supabase.from('users').select('display_name, session_mode').eq('id', user.id).single(),
+        supabase.from('user_preferences').select('sleep_time_default, work_life_dial').eq('user_id', user.id).single(),
+      ]).then(([{ data: userData }, { data: prefsData }]) => {
+        if (userData?.display_name) setUserName(userData.display_name)
+        if (userData?.session_mode === '90_20' || userData?.session_mode === '50_10') {
+          setSessionMode(userData.session_mode)
+        }
+        if (prefsData?.sleep_time_default) setSleepTime(prefsData.sleep_time_default)
+        if (prefsData?.work_life_dial != null) {
+          const dial = prefsData.work_life_dial <= 1
+            ? Math.round(prefsData.work_life_dial * 100)
+            : Math.round(prefsData.work_life_dial)
+          setDialValue(dial)
+        }
+      })
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -46,13 +66,28 @@ export default function PlanPage() {
     setTimeout(() => setToast(null), 4000)
   }, [])
 
+  const persistDial = useCallback(async (value: number) => {
+    if (!userId) return
+    await supabase.from('user_preferences').upsert(
+      { user_id: userId, work_life_dial: value / 100 },
+      { onConflict: 'user_id' },
+    )
+  }, [userId, supabase])
+
   const handleGenerate = async () => {
     const [h, m] = sleepTime.split(':').map(Number)
     const sleepDate = new Date()
     sleepDate.setHours(h, m, 0, 0)
     if (sleepDate < new Date()) sleepDate.setDate(sleepDate.getDate() + 1)
-    await generatePlan(sleepDate.toISOString(), sessionMode)
+    await persistDial(dialValue)
+    await generatePlan(sleepDate.toISOString(), sessionMode, { workLifeDial: dialValue / 100 })
     showToast('Day assembled — blocks scheduled, deadlines safe.')
+  }
+
+  const handleReplan = async () => {
+    await persistDial(dialValue)
+    await replanDay()
+    showToast('Re-flowed your plan from now.')
   }
 
   const doneBlocks = blocks.filter((b) => b.status === 'done').length
@@ -61,29 +96,25 @@ export default function PlanPage() {
   const totalDiscretionary = 9.0
   const workHours = (dialValue / 100 * totalDiscretionary).toFixed(1)
   const restHours = (totalDiscretionary - parseFloat(workHours)).toFixed(1)
-  const anchorLabel = dialValue > 62 ? 'Push' : dialValue < 38 ? 'Recover' : 'Balanced'
+  const anchorLabel = dialAnchorLabel(dialValue)
 
   const urgentBlocks = blocks.filter(
     (b) => b.task && (b.task.eisenhower_quadrant === 'urgent_important' || b.task.eisenhower_quadrant === 'urgent_not_important'),
   )
 
-  const dialTrackStyle = {
-    width: '100%',
-    margin: '18px 0 6px',
-    height: 4,
-    borderRadius: 4,
-    cursor: 'pointer',
-    background: `linear-gradient(90deg, var(--amber) ${dialValue}%, var(--surface2) ${dialValue}%)`,
-  } as const
+  const apexNotes = blocks.length === 0
+    ? null
+    : plan?.work_hour_cap_breached
+      ? [{ dot: 'blue', text: <>Work-hour cap was reached — some tasks moved to protect rest.</> }]
+      : [
+          { dot: '', text: <>Urgent tasks placed in your peak window for maximum focus.</> },
+          { dot: 'blue', text: <>Deep-work blocks consolidated to protect focus time.</> },
+          { dot: 'green', text: <>Habits scheduled after high-cognitive tasks as a reset.</> },
+        ]
 
   return (
-    <>
-      {/* Override apex-app to 3-col for planner */}
-      <style>{`.apex-app { grid-template-columns: 236px 1fr 360px !important; }`}</style>
-
-      {/* Center: timeline */}
+    <div className="apex-planner-body">
       <main style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: '100vh', paddingBottom: 100 }}>
-        {/* Header */}
         <div style={{ padding: '38px 44px 0' }}>
           <div className="apex-eyebrow">{format(new Date(), 'EEEE · MMMM d')}</div>
           <div style={{ fontWeight: 900, fontSize: 40, letterSpacing: -1, lineHeight: 1.03 }}>
@@ -95,7 +126,12 @@ export default function PlanPage() {
               : 'No plan yet — generate your day below'}
           </div>
 
-          {/* Progress bar */}
+          {error && (
+            <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, background: 'rgba(240,111,111,.1)', border: '1px solid rgba(240,111,111,.3)', color: 'var(--pink)', fontSize: 13 }}>
+              {error}
+            </div>
+          )}
+
           {blocks.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 16, margin: '26px 0 8px' }}>
               <div style={{ flex: 1, height: 6, borderRadius: 6, background: 'var(--surface2)', overflow: 'hidden' }}>
@@ -106,14 +142,12 @@ export default function PlanPage() {
           )}
         </div>
 
-        {/* Check-in banner */}
         {activeCheckinBlock && (
           <div style={{ padding: '0 44px' }}>
             <CheckInBanner block={activeCheckinBlock} onResponse={handleCheckin} />
           </div>
         )}
 
-        {/* Timeline or empty state */}
         <div style={{ flex: 1, overflowY: 'auto', paddingLeft: 44, paddingRight: 44, marginTop: 16, scrollbarWidth: 'none' }}>
           {isLoading ? (
             <div style={{ color: 'var(--text3)', fontFamily: 'var(--font-mono)', fontSize: 12, padding: '40px 0' }}>Loading…</div>
@@ -147,9 +181,7 @@ export default function PlanPage() {
         </div>
       </main>
 
-      {/* Right panel */}
       <aside className="apex-planner-panel">
-        {/* Work-life dial */}
         <div className="apex-card">
           <h3 style={{ fontFamily: 'var(--font-mono)', fontSize: 12, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--text2)', fontWeight: 500, marginBottom: 14 }}>Work-life dial</h3>
           <div className="dial-val">
@@ -157,10 +189,14 @@ export default function PlanPage() {
             <span className="dial-pct">· {dialValue}% invest</span>
           </div>
           <input
-            type="range" min={0} max={100} value={dialValue}
-            className="plan-dial"
+            type="range"
+            min={0}
+            max={100}
+            value={dialValue}
+            className="settings-dial plan-dial"
             onChange={(e) => setDialValue(+e.target.value)}
-            style={dialTrackStyle}
+            onMouseUp={(e) => { void persistDial(+(e.target as HTMLInputElement).value) }}
+            onTouchEnd={(e) => { void persistDial(+(e.target as HTMLInputElement).value) }}
           />
           <div className="dial-anchors">
             <b>Recover</b>
@@ -176,9 +212,13 @@ export default function PlanPage() {
             <span>{workHours}h invest</span>
             <span>{restHours}h protected rest</span>
           </div>
+          {plan?.work_life_dial_used != null && (
+            <div style={{ marginTop: 10, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text3)' }}>
+              Last plan used {Math.round(plan.work_life_dial_used * 100)}% invest
+            </div>
+          )}
         </div>
 
-        {/* Urgent tasks today */}
         {urgentBlocks.length > 0 && (
           <div className="apex-card">
             <h3 style={{ fontFamily: 'var(--font-mono)', fontSize: 12, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--text2)', fontWeight: 500, marginBottom: 14 }}>Urgent today</h3>
@@ -193,7 +233,6 @@ export default function PlanPage() {
           </div>
         )}
 
-        {/* APEX notes */}
         <div className={`apex-card plan-notes${notesOpen ? ' open' : ''}`}>
           <button
             type="button"
@@ -207,14 +246,10 @@ export default function PlanPage() {
           </button>
           {notesOpen && (
             <div className="plan-notes-body">
-              {blocks.length === 0 ? (
+              {!apexNotes ? (
                 <div style={{ color: 'var(--text3)', fontFamily: 'var(--font-mono)', fontSize: 12, padding: '8px 0' }}>Generate a plan to see APEX reasoning here.</div>
               ) : (
-                [
-                  { dot: '', text: <>Urgent tasks placed in your peak window for maximum focus.</> },
-                  { dot: 'blue', text: <>Deep-work blocks consolidated to protect focus time.</> },
-                  { dot: 'green', text: <>Habits scheduled after high-cognitive tasks as a reset.</> },
-                ].map(({ dot, text }, i) => (
+                apexNotes.map(({ dot, text }, i) => (
                   <div key={i} className="plan-note">
                     <span className={dot ? `dot ${dot}` : 'dot'} />
                     <span>{text}</span>
@@ -226,7 +261,6 @@ export default function PlanPage() {
         </div>
       </aside>
 
-      {/* Bottom controls */}
       <div className="apex-planner-controls">
         <button
           onClick={handleGenerate}
@@ -237,22 +271,20 @@ export default function PlanPage() {
         </button>
         {blocks.length > 0 && (
           <button
-            onClick={async () => {
-              showToast('Re-flowing your plan…')
-            }}
-            style={{ fontFamily: 'var(--font-head)', fontWeight: 700, fontSize: 14, padding: '13px 22px', borderRadius: 14, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer', transition: 'all .2s' }}
+            onClick={handleReplan}
+            disabled={isGenerating}
+            style={{ fontFamily: 'var(--font-head)', fontWeight: 700, fontSize: 14, padding: '13px 22px', borderRadius: 14, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer', transition: 'all .2s', opacity: isGenerating ? .6 : 1 }}
           >
             Replan
           </button>
         )}
       </div>
 
-      {/* Toast */}
       {toast && (
         <div style={{ position: 'fixed', bottom: 92, left: '50%', transform: 'translate(-50%,0)', zIndex: 20, background: 'rgba(22,21,20,.94)', backdropFilter: 'blur(14px)', border: '1px solid var(--border-lit)', borderRadius: 14, padding: '14px 18px', fontSize: 13.5, color: 'var(--text)', boxShadow: '0 16px 50px rgba(0,0,0,.5)', maxWidth: 420, lineHeight: 1.5 }}>
           {toast}
         </div>
       )}
-    </>
+    </div>
   )
 }

@@ -258,7 +258,6 @@ export function DayTimeline({ blocks, onCheckin }: DayTimelineProps) {
               <PlanBlockComponent
                 block={block}
                 isCurrent={isCurrent}
-                onCheckin={onCheckin}
               />
             </div>
           )

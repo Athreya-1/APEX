@@ -26,7 +26,7 @@ function compute30DayRate(habitId: string, logs: HabitLog[]): number {
   return Math.round((relevant.length / 30) * 100)
 }
 
-function getStreakDots(habitId: string, logs: HabitLog[], count = 14): boolean[] {
+export function getStreakDots(habitId: string, logs: HabitLog[], count = 14): boolean[] {
   const dots: boolean[] = []
   const check = new Date()
   check.setHours(0, 0, 0, 0)
