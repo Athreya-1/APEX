@@ -27,6 +27,30 @@ describe('parseQuickAddLocal', () => {
     expect(r.kind).toBe('clarify')
     if (r.kind === 'clarify') expect(r.missingFields).toContain('courseCode')
   })
+  it('matches shorthand 213 against registered course code', () => {
+    const r = parseQuickAddLocal('213 lab 5 due thu', {
+      now: NOW,
+      courses: [{ id: 'c1', name: 'Introduction to Computer Systems', code: '18-213' }],
+    })
+    if (r.kind !== 'task') throw new Error('expected task')
+    expect(r.courseCode).toBe('18-213')
+    expect(r.taskType).toBe('lab')
+    expect(r.resolvedCourseId).toBe('c1')
+  })
+  it('clarifies when shorthand matches multiple courses', () => {
+    const r = parseQuickAddLocal('213 lab 4 tomorrow', {
+      now: NOW,
+      courses: [
+        { id: 'c1', name: 'Intro to Computer Systems', code: '15-213' },
+        { id: 'c2', name: 'Introduction to Computer Systems', code: '18-213' },
+      ],
+    })
+    expect(r.kind).toBe('clarify')
+    if (r.kind === 'clarify') {
+      expect(r.courseCandidates).toHaveLength(2)
+      expect(r.missingFields).toContain('courseCode')
+    }
+  })
   it('matches a known course by name', () => {
     const r = parseQuickAddLocal('finish CMR writeup tomorrow', { now: NOW, knownCourses: ['CMR'] })
     if (r.kind !== 'task') throw new Error('expected task')

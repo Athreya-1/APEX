@@ -123,7 +123,10 @@ export default function TasksPage() {
         />
       </main>
 
-      <QuickAddBar knownCourses={courses.map((c) => c.name)} onTaskCreated={handleTaskCreated} />
+      <QuickAddBar
+        courses={courses.map((c) => ({ id: c.id, name: c.name, code: c.code }))}
+        onTaskCreated={handleTaskCreated}
+      />
 
       <EstimateModal
         open={estimateTaskId != null}

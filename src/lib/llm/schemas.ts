@@ -16,6 +16,7 @@ export const ParsedTaskSchema = z.object({
   doDate: z.string().nullable(),
   estimateHours: z.number().positive().nullable(),
   confidence: z.number().min(0).max(1),
+  resolvedCourseId: z.string().optional(),
 })
 
 export const ClarificationSchema = z.object({
@@ -23,6 +24,7 @@ export const ClarificationSchema = z.object({
   question: z.string().min(1),
   missingFields: z.array(z.string()),
   partial: ParsedTaskSchema.partial().optional(),
+  courseCandidates: z.array(z.object({ id: z.string(), label: z.string() })).optional(),
 })
 
 export const QuickAddResultSchema = z.discriminatedUnion('kind', [ParsedTaskSchema, ClarificationSchema])

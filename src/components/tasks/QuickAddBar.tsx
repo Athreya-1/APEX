@@ -3,13 +3,15 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { parseQuickAddLocal } from '@/lib/llm/quickAddLocal'
 import type { QuickAddResult } from '@/lib/llm/schemas'
+import type { CourseForMatch } from '@/lib/courses/match-from-text'
+import { courseDisplayName } from '@/lib/courses/normalize'
 import { QuickAddPreview } from './QuickAddPreview'
 import { ClarifyOverlay, type ClarifyMessage } from './ClarifyOverlay'
 import { EstimateModal } from './EstimateModal'
 import type { Task } from '@/types'
 
 interface QuickAddBarProps {
-  knownCourses: string[]
+  courses: CourseForMatch[]
   onTaskCreated: (task: Task) => void
 }
 
@@ -20,13 +22,14 @@ interface PendingEstimate {
   suggestedHours: number
 }
 
-export function QuickAddBar({ knownCourses, onTaskCreated }: QuickAddBarProps) {
+export function QuickAddBar({ courses, onTaskCreated }: QuickAddBarProps) {
   const [value, setValue] = useState('')
   const [preview, setPreview] = useState<QuickAddResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [clarifyActive, setClarifyActive] = useState(false)
   const [messages, setMessages] = useState<ClarifyMessage[]>([])
   const [clarifyPartial, setClarifyPartial] = useState<Record<string, string>>({})
+  const [clarifyCourseChips, setClarifyCourseChips] = useState<string[]>([])
   const [pendingText, setPendingText] = useState('')
   const [pendingEst, setPendingEst] = useState<PendingEstimate | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -38,9 +41,9 @@ export function QuickAddBar({ knownCourses, onTaskCreated }: QuickAddBarProps) {
         return
       }
       const now = new Date().toISOString()
-      setPreview(parseQuickAddLocal(text, { now, knownCourses }))
+      setPreview(parseQuickAddLocal(text, { now, courses }))
     },
-    [knownCourses],
+    [courses],
   )
 
   useEffect(() => {
@@ -69,6 +72,10 @@ export function QuickAddBar({ knownCourses, onTaskCreated }: QuickAddBarProps) {
         setPendingText(text)
         setClarifyActive(true)
         setMessages([{ role: 'system', text: data.question }])
+        setClarifyCourseChips(
+          (data.courseCandidates as Array<{ id: string; label: string }> | undefined)?.map((c) => c.label)
+            ?? courses.slice(0, 6).map((c) => courseDisplayName(c)),
+        )
         return
       }
       if (data.kind === 'needs_estimate') {
@@ -98,10 +105,17 @@ export function QuickAddBar({ knownCourses, onTaskCreated }: QuickAddBarProps) {
     if (!trimmed || loading) return
     if (clarifyActive) {
       setMessages((m) => [...m, { role: 'user', text: trimmed }])
-      const next = { ...clarifyPartial, courseCode: trimmed }
+      const chipCourse = courses.find(
+        (c) => courseDisplayName(c).toLowerCase() === trimmed.toLowerCase() || c.name.toLowerCase() === trimmed.toLowerCase(),
+      )
+      const next = {
+        ...clarifyPartial,
+        courseCode: chipCourse?.id ?? trimmed,
+      }
       setClarifyPartial(next)
       setValue('')
       setClarifyActive(false)
+      setClarifyCourseChips([])
       await finishAdd(pendingText || trimmed, { clarify: next })
       return
     }
@@ -122,9 +136,10 @@ export function QuickAddBar({ knownCourses, onTaskCreated }: QuickAddBarProps) {
   function cancelClarify() {
     setClarifyActive(false)
     setMessages([])
+    setClarifyCourseChips([])
   }
 
-  const courseChips = knownCourses.slice(0, 6)
+  const courseChips = clarifyActive ? clarifyCourseChips : courses.slice(0, 6).map((c) => courseDisplayName(c))
 
   return (
     <>
